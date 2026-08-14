@@ -1,4 +1,13 @@
 
+import { TRANSLATIONS } from './i18n.js';
+import { escapeHtml } from './js/utils.js';
+import { initAudio, haptic, setMuted, toggleMute, isMuted, getHapticMode, setHapticMode,
+         sfxPlace, sfxClear, sfxBomb, sfxHammer, sfxReroll, sfxRotate, sfxNewBest,
+         playComboAudio, sfxGameOver } from './js/audio.js';
+import { initEffects, triggerScreenShake, triggerConfetti, showScoreFloat, spawnParticles,
+         spawnCrackParticles, spawnShockwave, spawnSpark } from './js/effects.js';
+import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderboard.js';
+
 (function(){
   /* ═══════════════════════════════════════════════
    *  FIREBASE CONFIG — Zamenite sa vašim podacima
@@ -26,7 +35,7 @@
   let fb_app, fb_appCheck, fb_auth, fb_db, fb_userId = null;
   let firebaseReady = false;
   let pendingScore = null; // best score awaiting Firebase auth before submit
-  let muted = localStorage.getItem('blocksrocks_muted') === '1';
+  // muted / hapticMode stanje: vlasništvo js/audio.js modula
 
   try {
     if (typeof firebase !== 'undefined' && firebase.initializeApp) {
@@ -303,8 +312,7 @@
   /* ═══════════════════════════════════════════════
    *  MULTILINGUAL i18n TRANSLATIONS (sr, en, de, es, fr, ru)
    * ═══════════════════════════════════════════════ */
-  // Prevodi su izdvojeni u www/i18n.js (učitava se pre app.js)
-  const TRANSLATIONS = window.BR_I18N;
+  // Prevodi: ES modul www/i18n.js (import na vrhu fajla)
 
   let currentLang = localStorage.getItem('blocksrocks_lang') || 'sr';
 
@@ -373,7 +381,7 @@
 
     setText('resumeBtn', t.resumeBtn);
     const pmBtn = document.getElementById('pauseMuteBtn');
-    if (pmBtn) pmBtn.textContent = (muted ? '🔇 ' : '🔊 ') + t.pauseMutePrefix + (muted ? t.soundOff : t.soundOn);
+    if (pmBtn) pmBtn.textContent = (isMuted() ? '🔇 ' : '🔊 ') + t.pauseMutePrefix + (isMuted() ? t.soundOff : t.soundOn);
     setText('pauseRestartBtn', t.pauseRestartBtn);
 
     const settingsH3 = document.getElementById('settingsHeading') || document.querySelector('#username-modal h3');
@@ -421,7 +429,7 @@
     setText('i18n_highContrastDesc', t.highContrastDesc || 'Izražene ivice i konture blokova');
 
     updateDragOffsetSetting(userDragOffsetMultiplier);
-    updateHapticSetting(hapticMode);
+    updateHapticSetting(getHapticMode());
     updateHighContrastSetting(highContrastMode);
 
     const langSelect = document.getElementById('langSelect');
@@ -454,7 +462,6 @@
    *  SETTINGS MANAGEMENT (Drag Offset, Haptics, High Contrast, Particles)
    * ═══════════════════════════════════════════════ */
   let userDragOffsetMultiplier = parseFloat(localStorage.getItem('blocksrocks_dragOffset') || '2.0');
-  let hapticMode = localStorage.getItem('blocksrocks_haptic') || 'medium';
   let highContrastMode = localStorage.getItem('blocksrocks_highContrast') === '1';
   let particleTrailEnabled = localStorage.getItem('blocksrocks_particles') !== '0';
 
@@ -470,8 +477,7 @@
   }
 
   function updateHapticSetting(val) {
-    hapticMode = val;
-    localStorage.setItem('blocksrocks_haptic', val);
+    setHapticMode(val); // stanje + localStorage: js/audio.js
     const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
     const container = document.getElementById('hapticOptions') || document.getElementById('hapticGroup');
     if (container) {
@@ -504,7 +510,7 @@
   function initSettingsUI() {
     applyLanguage(currentLang);
     updateDragOffsetSetting(userDragOffsetMultiplier);
-    updateHapticSetting(hapticMode);
+    updateHapticSetting(getHapticMode());
     updateHighContrastSetting(highContrastMode);
     updateParticleSetting(particleTrailEnabled);
     renderCareerStats();
@@ -1256,404 +1262,6 @@
   }
 
   /* ═══════════════════════════════════════════════
-   *  LEADERBOARD — multi-score ("leaderboard" kolekcija)
-   *  Svaka partija = jedan dokument; prikaz: TOP 3 po
-   *  korisniku + paginacija (dugme "UČITAJ JOŠ").
-   * ═══════════════════════════════════════════════ */
-  const PAGE_SIZE = 25;
-  const COUNTRY_PAGE_SIZE = 100;
-  const MAX_ENTRIES_PER_USER = 3;
-
-  // ── fetch batches ──
-  async function fetchGlobalBatch(afterSnap, limit){
-    if(!firebaseReady || !fb_db) return { items: [], lastSnap: null };
-    try {
-      let q = fb_db.collection('leaderboard')
-        .orderBy('score', 'desc');
-      if(afterSnap) q = q.startAfter(afterSnap);
-      q = q.limit(limit || PAGE_SIZE);
-      const snap = await q.get();
-      return { items: snap.docs.map(d => d.data()), lastSnap: snap.docs.length ? snap.docs[snap.docs.length-1] : null };
-    } catch(err){
-      console.warn('[B&R] Global fetch failed:', err.message);
-      return { items: [], lastSnap: null };
-    }
-  }
-
-  async function fetchCountryBatch(code, afterSnap, limit){
-    const fetchLimit = limit || COUNTRY_PAGE_SIZE;
-    if(!firebaseReady || !code || code === 'XX' || !fb_db) return { items: [], lastSnap: null };
-    try {
-      let q = fb_db.collection('leaderboard')
-        .where('countryCode', '==', code)
-        .orderBy('score', 'desc');
-      if(afterSnap) q = q.startAfter(afterSnap);
-      q = q.limit(fetchLimit);
-      const snap = await q.get();
-      return { items: snap.docs.map(d => d.data()), lastSnap: snap.docs.length ? snap.docs[snap.docs.length-1] : null };
-    } catch(err){
-      console.warn('[B&R] Country fetch failed, using global filter fallback:', err.message);
-      try {
-        const globalRes = await fetchGlobalBatch(null, 150);
-        const filtered = globalRes.items.filter(item => item.countryCode === code);
-        return { items: filtered.slice(0, fetchLimit), lastSnap: null };
-      } catch(e2) {
-        return { items: [], lastSnap: null };
-      }
-    }
-  }
-
-  async function fetchMyTop3(){
-    let localTop = [];
-    try {
-      localTop = JSON.parse(localStorage.getItem('blocksrocks_myScores') || '[]');
-    } catch(e){}
-
-    if(!firebaseReady || !fb_userId || !fb_db) {
-      return GameCore.sortScoresByTop(localTop, MAX_ENTRIES_PER_USER);
-    }
-
-    try {
-      const snap = await fb_db.collection('leaderboard')
-        .where('userId', '==', fb_userId)
-        .get();
-      const cloudItems = snap.docs.map(d => d.data());
-      const combined = GameCore.mergePages(cloudItems, localTop);
-      const top3 = GameCore.sortScoresByTop(combined, MAX_ENTRIES_PER_USER);
-      localStorage.setItem('blocksrocks_myScores', JSON.stringify(top3));
-      if(top3.length && top3[0].score > personalBest){
-        savePersonalBest(top3[0].score);
-        best = top3[0].score;
-        if(bestEl) bestEl.textContent = best;
-      }
-      return top3;
-    } catch(err){
-      console.warn('[B&R] My scores fetch failed, using local:', err.message);
-      return GameCore.sortScoresByTop(localTop, MAX_ENTRIES_PER_USER);
-    }
-  }
-
-  /* ── DOM refs ── */
-  const lbOverlay = document.getElementById('lb-overlay');
-  const lbPersonalBest = document.getElementById('lbPersonalBest');
-  const lbMyList = document.getElementById('lbMyList');
-  const lbContent = document.getElementById('lbContent');
-  const lbLoadMoreWrap = document.getElementById('lbLoadMoreWrap');
-  const lbLoadMoreBtn = document.getElementById('lbLoadMoreBtn');
-  const lbCountryLabel = document.getElementById('lbCountryLabel');
-  const tabCountry = document.getElementById('tabCountry');
-  const tabGlobal = document.getElementById('tabGlobal');
-
-  let currentTab = 'country';
-  let lbItems = [];
-  let lbLastSnap = null;
-  let lbAllLoaded = false;
-  let lbLoadingMore = false;
-  let lbObserver = null;
-  let returnToOverlayOnLbClose = false;
-
-  function cleanupLbObserver(){
-    if(lbObserver){
-      lbObserver.disconnect();
-      lbObserver = null;
-    }
-  }
-
-  function drawLb(){
-    cleanupLbObserver();
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    if(!lbItems.length){
-      lbContent.innerHTML = '<div class="lb-empty">' + (t.lbEmpty || 'Još nema rezultata.<br>Budi prvi! 🚀') + '</div>';
-      lbLoadMoreWrap.style.display = 'none';
-      return;
-    }
-    const medals = ['gold','silver','bronze'];
-    let html = '<ul class="lb-list">';
-    lbItems.forEach((d, idx)=>{
-      const rank = idx + 1;
-      const isMe = (d.userId && d.userId === fb_userId) || (d.username && d.username === username);
-      const medalClass = rank <= 3 ? medals[rank-1] : (rank <= 10 ? 'top10' : '');
-      const rankRowClass = rank <= 3 ? ('rank-' + rank) : '';
-      let rankBadge = '#' + rank;
-      if (rank === 1) rankBadge = '👑 1';
-      else if (rank === 2) rankBadge = '🥈 2';
-      else if (rank === 3) rankBadge = '🥉 3';
-      else if (rank <= 10) rankBadge = '🎖️ ' + rank;
-
-      const flag = countryFlag(d.countryCode);
-      const meBadgeHtml = isMe ? ('<span class="lb-badge-me">' + (t.badgeMe || 'TI') + '</span>') : '';
-      html += '<li class="lb-row ' + (isMe ? 'me ' : '') + rankRowClass + '">'
-        + '<span class="lb-rank ' + medalClass + '">' + rankBadge + '</span>'
-        + '<span class="lb-flag">' + flag + '</span>'
-        + '<span class="lb-name">' + escapeHtml(d.username || 'Anon') + meBadgeHtml + '</span>'
-        + '<span class="lb-score">' + (Number(d.score)||0).toLocaleString() + '</span>'
-        + '</li>';
-    });
-    html += '</ul>';
-
-    if(!lbAllLoaded){
-      html += '<div id="lbScrollSentinel" class="lb-scroll-sentinel"><div class="lb-mini-spinner"></div></div>';
-    }
-
-    lbContent.innerHTML = html;
-    // Dugme "UČITAJ JOŠ" = fallback za okruženja bez IntersectionObserver-a
-    lbLoadMoreWrap.style.display = (!lbAllLoaded && !window.IntersectionObserver) ? 'block' : 'none';
-
-    if(!lbAllLoaded && window.IntersectionObserver){
-      const sentinel = document.getElementById('lbScrollSentinel');
-      const rootScroll = document.querySelector('.lb-card');
-      if(sentinel){
-        lbObserver = new IntersectionObserver((entries)=>{
-          if(entries[0] && entries[0].isIntersecting && !lbLoadingMore && !lbAllLoaded){
-            loadMore();
-          }
-        }, { root: rootScroll, rootMargin: '100px' });
-        lbObserver.observe(sentinel);
-      }
-    }
-  }
-
-  function renderMyTop3(list){
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    const top = GameCore.sortScoresByTop(list, MAX_ENTRIES_PER_USER);
-    if(!top.length){
-      lbMyList.innerHTML = '<div class="my-empty">' + (t.lbMyEmpty || 'Nema još rezultata — odigraj partiju!') + '</div>';
-      lbPersonalBest.innerHTML = '0<span>pts</span>';
-      return;
-    }
-    lbPersonalBest.innerHTML = (Number(top[0].score)||0).toLocaleString() + '<span>pts</span>';
-    const medals = ['🥇','🥈','🥉'];
-    let html = '';
-    top.forEach((e, i)=>{
-      html += '<div class="my-row"><span class="my-rank">' + (medals[i] || ('#'+(i+1))) + '</span><span>' + escapeHtml(e.username || 'Anon') + '</span><span class="my-score">' + ((Number(e.score)||0).toLocaleString()) + '</span></div>';
-    });
-    lbMyList.innerHTML = html;
-  }
-
-  function escapeHtml(str){
-    const d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
-  }
-
-  async function loadLeaderboard(tab){
-    cleanupLbObserver();
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    currentTab = tab;
-    lbItems = [];
-    lbLastSnap = null;
-    lbAllLoaded = false;
-    lbLoadingMore = false;
-    lbContent.innerHTML = '<div class="lb-loading"><div class="lb-spinner"></div></div>';
-
-    // Personal top-3 (nezavisno od taba)
-    renderMyTop3(await fetchMyTop3());
-
-    tabCountry.classList.toggle('active', tab === 'country');
-    tabGlobal.classList.toggle('active', tab === 'global');
-
-    let res;
-    if(tab === 'country'){
-      if(countryCode === 'XX'){
-        lbCountryLabel.textContent = t.lbLocationUnavailable || '🌐 Lokacija nedostupna — World TOP 100';
-        lbCountryLabel.style.display = '';
-        res = await fetchGlobalBatch(null, PAGE_SIZE);
-      } else {
-        lbCountryLabel.textContent = countryFlag(countryCode) + ' ' + getFullCountryName(countryCode, currentLang) + ' (TOP 100)';
-        lbCountryLabel.style.display = '';
-        res = await fetchCountryBatch(countryCode, null, PAGE_SIZE);
-      }
-      lbItems = res.items;
-      lbLastSnap = res.lastSnap;
-      lbAllLoaded = !res.lastSnap || res.items.length < PAGE_SIZE || lbItems.length >= 100;
-    } else {
-      lbCountryLabel.style.display = 'none';
-      res = await fetchGlobalBatch(null, PAGE_SIZE);
-      lbItems = res.items;
-      lbLastSnap = res.lastSnap;
-      lbAllLoaded = !res.lastSnap || res.items.length < PAGE_SIZE;
-    }
-    drawLb();
-  }
-
-  async function loadMore(){
-    if(!lbLastSnap || lbAllLoaded || lbLoadingMore) return;
-    lbLoadingMore = true;
-    try {
-      let res;
-      if(currentTab === 'country'){
-        if(countryCode === 'XX') res = await fetchGlobalBatch(lbLastSnap, PAGE_SIZE);
-        else res = await fetchCountryBatch(countryCode, lbLastSnap, PAGE_SIZE);
-        lbItems = GameCore.mergePages(lbItems, res.items);
-        lbLastSnap = res.lastSnap;
-        lbAllLoaded = !res.lastSnap || res.items.length < PAGE_SIZE || lbItems.length >= 100;
-      } else {
-        res = await fetchGlobalBatch(lbLastSnap, PAGE_SIZE);
-        lbItems = GameCore.mergePages(lbItems, res.items);
-        lbLastSnap = res.lastSnap;
-        lbAllLoaded = !res.lastSnap || res.items.length < PAGE_SIZE;
-      }
-      drawLb();
-    } catch(err){
-      console.warn('[B&R] loadMore error:', err);
-    } finally {
-      lbLoadingMore = false;
-    }
-  }
-
-  function openLeaderboard(){
-    lbOverlay.style.display = 'flex';
-    loadLeaderboard(currentTab);
-  }
-
-  function closeLeaderboard(){
-    cleanupLbObserver();
-    lbOverlay.style.display = 'none';
-    // If we opened the leaderboard from the game-over screen, bring the overlay back
-    if(returnToOverlayOnLbClose){
-      returnToOverlayOnLbClose = false;
-      if(gameOver) overlayEl.style.display = 'flex';
-    }
-  }
-
-  // Load more
-  lbLoadMoreBtn.addEventListener('click', loadMore);
-
-  // Tab clicks
-  tabCountry.addEventListener('click', ()=> loadLeaderboard('country'));
-  tabGlobal.addEventListener('click', ()=> loadLeaderboard('global'));
-
-  // Close button
-  document.getElementById('lbCloseBtn').addEventListener('click', closeLeaderboard);
-
-  // Close on backdrop click
-  lbOverlay.addEventListener('click', (e)=>{
-    if(e.target === lbOverlay) closeLeaderboard();
-  });
-
-  // Trophy button in header
-  document.getElementById('btnTrophy').addEventListener('click', openLeaderboard);
-
-  // NAPOMENA: listener za #showLbBtn (game-over overlay) registruje se samo JEDNOM —
-  // debounced verzija pri dnu fajla (ranije dupliran → dvostruko učitavanje rang liste).
-
-  /* ═══════════════════════════════════════════════
-   *  BOTTOM RECORDS WIDGET (Country & Global Tops)
-   * ═══════════════════════════════════════════════ */
-  let cachedCountryTop = null;
-  let cachedGlobalTop = null;
-  let isFetchingBottomRecords = false;
-
-  async function updateBottomRecords(forceFetch = false) {
-    const elCountryFlag = document.getElementById('bottomCountryFlag');
-    const elCountryName = document.getElementById('bottomCountryName');
-    const elCountryPlayer = document.getElementById('bottomCountryPlayer');
-    const elCountryPoints = document.getElementById('bottomCountryPoints');
-
-    const elGlobalFlag = document.getElementById('bottomGlobalFlag');
-    const elGlobalName = document.getElementById('bottomGlobalName');
-    const elGlobalPlayer = document.getElementById('bottomGlobalPlayer');
-    const elGlobalPoints = document.getElementById('bottomGlobalPoints');
-
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    const effectiveCode = (countryCode && countryCode !== 'XX') ? countryCode : guessCountryFromDevice();
-
-    // Immediate UI text update with localized country name and current tab
-    if (elCountryFlag) elCountryFlag.textContent = countryFlag(effectiveCode);
-    if (elCountryName) elCountryName.textContent = getFullCountryName(effectiveCode, currentLang);
-    if (elGlobalFlag) elGlobalFlag.textContent = '🌍';
-    if (elGlobalName) elGlobalName.textContent = t.tabGlobal || 'Svet';
-
-    if (cachedCountryTop && !forceFetch) {
-      if (elCountryPlayer) elCountryPlayer.textContent = cachedCountryTop.username || '—';
-      if (elCountryPoints) elCountryPoints.textContent = Number(cachedCountryTop.score || 0).toLocaleString();
-    }
-    if (cachedGlobalTop && !forceFetch) {
-      const gFlag = cachedGlobalTop.countryCode ? countryFlag(cachedGlobalTop.countryCode) + ' ' : '';
-      if (elGlobalPlayer) elGlobalPlayer.textContent = gFlag + (cachedGlobalTop.username || '—');
-      if (elGlobalPoints) elGlobalPoints.textContent = Number(cachedGlobalTop.score || 0).toLocaleString();
-    }
-
-    if (!firebaseReady || !fb_db || isFetchingBottomRecords) return;
-
-    isFetchingBottomRecords = true;
-    try {
-      // 1. Fetch Top 1 Global
-      const globalPromise = fb_db.collection('leaderboard')
-        .orderBy('score', 'desc')
-        .limit(1)
-        .get()
-        .then(snap => (snap.docs && snap.docs.length) ? snap.docs[0].data() : null)
-        .catch(err => { console.warn('[B&R] Global record fetch failed:', err.message); return null; });
-
-      // 2. Fetch Top 1 Country with scan fallback
-      const countryPromise = (effectiveCode && effectiveCode !== 'XX')
-        ? fb_db.collection('leaderboard')
-            .where('countryCode', '==', effectiveCode)
-            .orderBy('score', 'desc')
-            .limit(1)
-            .get()
-            .then(snap => (snap.docs && snap.docs.length) ? snap.docs[0].data() : null)
-            .catch(async err => {
-              console.warn('[B&R] Country query failed, scanning global top 100:', err.message);
-              try {
-                const scanSnap = await fb_db.collection('leaderboard')
-                  .orderBy('score', 'desc')
-                  .limit(100)
-                  .get();
-                const match = scanSnap.docs.map(d => d.data()).find(d => d.countryCode === effectiveCode);
-                return match || null;
-              } catch(e2) {
-                return null;
-              }
-            })
-        : Promise.resolve(null);
-
-      const [globalDoc, countryDoc] = await Promise.all([globalPromise, countryPromise]);
-
-      if (globalDoc) {
-        cachedGlobalTop = globalDoc;
-        const gFlag = globalDoc.countryCode ? countryFlag(globalDoc.countryCode) + ' ' : '';
-        if (elGlobalPlayer) elGlobalPlayer.textContent = gFlag + (globalDoc.username || '—');
-        if (elGlobalPoints) elGlobalPoints.textContent = Number(globalDoc.score || 0).toLocaleString();
-      } else if (!cachedGlobalTop) {
-        if (elGlobalPlayer) elGlobalPlayer.textContent = '—';
-        if (elGlobalPoints) elGlobalPoints.textContent = '0';
-      }
-
-      if (countryDoc) {
-        cachedCountryTop = countryDoc;
-        if (elCountryPlayer) elCountryPlayer.textContent = countryDoc.username || '—';
-        if (elCountryPoints) elCountryPoints.textContent = Number(countryDoc.score || 0).toLocaleString();
-      } else if (!cachedCountryTop) {
-        if (elCountryPlayer) elCountryPlayer.textContent = '—';
-        if (elCountryPoints) elCountryPoints.textContent = '0';
-      }
-    } finally {
-      isFetchingBottomRecords = false;
-    }
-  }
-
-  // Bottom cards click bindings -> open corresponding leaderboard tab
-  const bottomCountryCard = document.getElementById('bottomCountryCard');
-  if (bottomCountryCard) {
-    bottomCountryCard.addEventListener('click', () => {
-      openLeaderboard();
-      loadLeaderboard('country');
-      haptic('light');
-    });
-  }
-
-  const bottomGlobalCard = document.getElementById('bottomGlobalCard');
-  if (bottomGlobalCard) {
-    bottomGlobalCard.addEventListener('click', () => {
-      openLeaderboard();
-      loadLeaderboard('global');
-      haptic('light');
-    });
-  }
-
-  /* ═══════════════════════════════════════════════
    *  GAME CORE
    * ═══════════════════════════════════════════════ */
   const { SIZE, COLORS, SHAPES } = GameCore;
@@ -1711,6 +1319,25 @@
   const comboPillText = document.getElementById('comboPillText');
 
   best = personalBest;
+
+  /* ═══ MODULE WIRING (ES moduli + dependency injection) ═══ */
+  initAudio({ getT: () => TRANSLATIONS[currentLang] || TRANSLATIONS.sr });
+  initEffects({ CONFIG, SIZE, boardEl, scoreEl,
+                getGrid: () => grid,
+                getParticleTrailEnabled: () => particleTrailEnabled });
+  initLeaderboard({
+    haptic, debounceAction, CONFIG,
+    countryFlag, getFullCountryName, guessCountryFromDevice,
+    getFirebase: () => ({ fb_db, firebaseReady, fb_userId }),
+    getUsername: () => username,
+    getCountryCode: () => countryCode,
+    getCurrentLang: () => currentLang,
+    getPersonalBest: () => personalBest,
+    savePersonalBest,
+    setBest: (v) => { best = v; if (bestEl) bestEl.textContent = best; },
+    getGameOver: () => gameOver,
+    overlayEl,
+  });
 
   function updatePowerupUI(){
     if (puHammerCount) puHammerCount.textContent = hammersCount;
@@ -1885,248 +1512,6 @@
       const days = Math.max(0, Math.floor((now - first) / 86400000));
       track('app_open', { session_count: sessions, days_since_first_visit: days, returning: days >= 1 });
     }catch(e){}
-  }
-
-  /* ═══════════════════════════════════════════════
-   *  SOUND EFFECTS (Web Audio API)
-   * ═══════════════════════════════════════════════ */
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  let audioCtx = null;
-  function getAudioCtx(){
-    if(!audioCtx) audioCtx = new AudioCtx();
-    if(audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(()=>{});
-    }
-    return audioCtx;
-  }
-  // Unlock audio on first user gesture for mobile / WebView
-  function unlockAudio(){
-    if(audioCtx && audioCtx.state === 'suspended'){
-      audioCtx.resume().catch(()=>{});
-    }
-  }
-  window.addEventListener('pointerdown', unlockAudio, { once: true });
-  window.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
-  function playTone(freq, duration, type, vol){
-    if(muted) return;
-    try {
-      const ctx = getAudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = type || 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
-      gain.gain.setValueAtTime(vol || 0.12, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.onended = () => {
-        try {
-          osc.disconnect();
-          gain.disconnect();
-        } catch(e){}
-      };
-      osc.start();
-      osc.stop(ctx.currentTime + duration);
-    } catch(e){}
-  }
-  function haptic(type){
-    if (hapticMode === 'off') return; // poštuj korisničko podešavanje
-    try{
-      const cap = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Haptics;
-      if(cap){
-        if(type === 'success') cap.notification({ type: 'SUCCESS' });
-        else if(type === 'warning') cap.notification({ type: 'WARNING' });
-        else if(type === 'heavy') cap.impact({ style: hapticMode === 'light' ? 'MEDIUM' : 'HEAVY' });
-        else cap.impact({ style: hapticMode === 'strong' ? 'MEDIUM' : 'LIGHT' });
-        return;
-      }
-      const scale = hapticMode === 'strong' ? 1 : hapticMode === 'light' ? 0.4 : 0.7;
-      if(navigator.vibrate) navigator.vibrate(type === 'success' ? [15,40,15] : Math.round((type === 'heavy' ? 60 : 12) * scale));
-    }catch(e){}
-  }
-  function setMuted(v){
-    muted = !!v;
-    localStorage.setItem('blocksrocks_muted', muted ? '1' : '0');
-    const icon = document.getElementById('btnMute');
-    if(icon) icon.textContent = muted ? '🔇' : '🔊';
-    const pm = document.getElementById('pauseMuteBtn');
-    if(pm){
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-      pm.textContent = (muted ? '🔇 ' : '🔊 ') + t.pauseMutePrefix + (muted ? t.soundOff : t.soundOn);
-    }
-  }
-  function toggleMute(){ setMuted(!muted); }
-
-  function sfxPlace(){ playTone(520, 0.10, 'sine', 0.13); playTone(680, 0.08, 'triangle', 0.08); haptic('light'); }
-  function sfxClear(){
-    playTone(600, 0.12, 'sine', 0.1);
-    setTimeout(()=> playTone(800, 0.14, 'sine', 0.1), 60);
-    setTimeout(()=> playTone(1100, 0.18, 'triangle', 0.08), 120);
-    haptic('success');
-  }
-  function sfxBomb(){
-    playTone(120, 0.35, 'sawtooth', 0.15);
-    playTone(80, 0.5, 'sine', 0.12);
-    haptic('heavy');
-  }
-  function sfxHammer(){
-    playTone(160, 0.15, 'sawtooth', 0.2);
-    playTone(90, 0.22, 'triangle', 0.18);
-    haptic('heavy');
-  }
-  function sfxReroll(){
-    playTone(440, 0.07, 'sine', 0.1);
-    setTimeout(()=> playTone(554, 0.08, 'sine', 0.1), 50);
-    setTimeout(()=> playTone(659, 0.09, 'sine', 0.1), 100);
-    setTimeout(()=> playTone(880, 0.12, 'sine', 0.12), 150);
-    haptic('medium');
-  }
-  function sfxRotate(){
-    playTone(720, 0.06, 'triangle', 0.1);
-    haptic('light');
-  }
-  function sfxNewBest(){
-    const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6 triumph fanfare
-    notes.forEach((freq, i) => {
-      setTimeout(() => {
-        playTone(freq, 0.18 + i * 0.04, 'sine', 0.14);
-        if (i === notes.length - 1) playTone(freq, 0.35, 'triangle', 0.12);
-      }, i * 90);
-    });
-    haptic('success');
-  }
-  function playComboAudio(streak, lines){
-    const baseFreqs = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50, 1174.66, 1318.51];
-    const rootIdx = Math.min(Math.max(0, streak - 1), baseFreqs.length - 3);
-    const f1 = baseFreqs[rootIdx] || 523.25;
-    const f2 = baseFreqs[rootIdx + 1] || 659.25;
-    const f3 = baseFreqs[rootIdx + 2] || 783.99;
-    playTone(f1, 0.1, 'sine', 0.12);
-    setTimeout(()=> playTone(f2, 0.12, 'sine', 0.12), 60);
-    setTimeout(()=> playTone(f3, 0.18, 'triangle', 0.1), 120);
-    haptic('success');
-  }
-  function sfxGameOver(){
-    playTone(440, 0.2, 'sine', 0.1);
-    setTimeout(()=> playTone(370, 0.2, 'sine', 0.1), 150);
-    setTimeout(()=> playTone(300, 0.4, 'sine', 0.12), 300);
-    haptic('warning');
-  }
-
-  /* ═══════════════════════════════════════════════
-   *  SCREEN SHAKE EFFECT
-   * ═══════════════════════════════════════════════ */
-  function triggerScreenShake(intensity = 'light'){
-    const target = document.getElementById('wrap') || boardEl;
-    if(!target) return;
-    const cls = intensity === 'heavy' ? 'screen-shake-heavy' : 'screen-shake-light';
-    target.classList.remove('screen-shake-light', 'screen-shake-heavy');
-    void target.offsetWidth;
-    target.classList.add(cls);
-    setTimeout(() => target.classList.remove(cls), intensity === 'heavy' ? 400 : 280);
-  }
-
-  /* ═══════════════════════════════════════════════
-   *  CONFETTI SYSTEM (Canvas Particle Burst)
-   * ═══════════════════════════════════════════════ */
-  const confettiCanvas = document.getElementById('confettiCanvas');
-  let confettiCtx = null;
-  let confettiParticles = [];
-  let confettiRAF = null;
-
-  function initConfetti(){
-    if (!confettiCanvas) return;
-    confettiCtx = confettiCanvas.getContext('2d');
-    const resize = () => {
-      confettiCanvas.width = window.innerWidth;
-      confettiCanvas.height = window.innerHeight;
-    };
-    window.addEventListener('resize', resize);
-    resize();
-  }
-
-  function triggerConfetti(count = 60){
-    if (!confettiCanvas) return;
-    if (!confettiCtx) initConfetti();
-    if (!confettiCtx) return;
-
-    const colors = ['#5eead4', '#f472b6', '#fbbf24', '#a78bfa', '#a3e635', '#60a5fa', '#fb923c', '#ffffff'];
-    const originX = confettiCanvas.width / 2;
-    const originY = confettiCanvas.height * 0.42;
-
-    for (let i = 0; i < count; i++) {
-      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
-      const speed = 5 + Math.random() * 10;
-      confettiParticles.push({
-        x: originX + (Math.random() - 0.5) * 90,
-        y: originY + (Math.random() - 0.5) * 40,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 4.5,
-        size: 5 + Math.random() * 7,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        rotation: Math.random() * 360,
-        rotationSpeed: (Math.random() - 0.5) * 14,
-        alpha: 1,
-        life: 0,
-        maxLife: 60 + Math.floor(Math.random() * 35),
-      });
-    }
-
-    if (!confettiRAF) {
-      animateConfetti();
-    }
-  }
-
-  function animateConfetti(){
-    if (!confettiCtx || confettiParticles.length === 0) {
-      if (confettiCtx && confettiCanvas) confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
-      confettiRAF = null;
-      return;
-    }
-
-    confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
-
-    for (let i = confettiParticles.length - 1; i >= 0; i--) {
-      const p = confettiParticles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.24; // gravity
-      p.vx *= 0.98; // air drag
-      p.rotation += p.rotationSpeed;
-      p.life++;
-      p.alpha = Math.max(0, 1 - p.life / p.maxLife);
-
-      if (p.alpha <= 0 || p.y > confettiCanvas.height + 20) {
-        confettiParticles.splice(i, 1);
-        continue;
-      }
-
-      confettiCtx.save();
-      confettiCtx.globalAlpha = p.alpha;
-      confettiCtx.translate(p.x, p.y);
-      confettiCtx.rotate((p.rotation * Math.PI) / 180);
-      confettiCtx.fillStyle = p.color;
-      confettiCtx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.65);
-      confettiCtx.restore();
-    }
-
-    confettiRAF = requestAnimationFrame(animateConfetti);
-  }
-
-  /* ═══════════════════════════════════════════════
-   *  SCORE FLOAT ANIMATION
-   * ═══════════════════════════════════════════════ */
-  function showScoreFloat(points){
-    if(points <= 0) return;
-    const el = document.createElement('div');
-    el.className = 'score-float';
-    el.textContent = '+' + points;
-    const scorebox = scoreEl.closest('.scorebox');
-    scorebox.style.position = 'relative';
-    scorebox.appendChild(el);
-    el.style.right = '4px';
-    el.style.bottom = '100%';
-    setTimeout(()=> el.remove(), CONFIG.SCORE_FLOAT_DURATION);
   }
 
   /* ═══════════════════════════════════════════════
@@ -2376,91 +1761,6 @@
     saveGameState();
   }
 
-  function spawnParticles(cellsToClear, colorOverride){
-    const rect = boardEl.getBoundingClientRect();
-    const padding = 8, gap = 4;
-    const cellW = (rect.width - padding*2 - gap*(SIZE-1)) / SIZE;
-    const total = cellsToClear.length || 1;
-    const count = total > 12 ? 2 : (total > 6 ? 3 : CONFIG.PARTICLE_COUNT);
-
-    const existing = document.querySelectorAll('.particle');
-    if (existing.length > 36) {
-      for (let k = 0; k < existing.length - 20; k++) existing[k].remove();
-    }
-
-    cellsToClear.forEach(key=>{
-      const [r,c] = key.split('_').map(Number);
-      const cellData = grid[r][c];
-      const color = colorOverride || (cellData && cellData.color) || '#5eead4';
-      const cx = rect.left + padding + c*(cellW+gap) + cellW/2;
-      const cy = rect.top + padding + r*(cellW+gap) + cellW/2;
-
-      for(let i=0;i<count;i++){
-        const p = document.createElement('div');
-        p.className = 'particle';
-        p.style.background = color;
-        p.style.left = cx+'px';
-        p.style.top = cy+'px';
-        document.body.appendChild(p);
-
-        const angle = (Math.PI*2*i/count) + Math.random()*0.6;
-        const dist = 30 + Math.random()*40;
-        const dx = Math.cos(angle)*dist;
-        const dy = Math.sin(angle)*dist;
-        const rot = (Math.random()*360)|0;
-
-        p.animate([
-          { transform:'translate3d(0,0,0) rotate(0deg) scale(1)', opacity:1 },
-          { transform:`translate3d(${dx}px, ${dy}px, 0) rotate(${rot}deg) scale(0.3)`, opacity:0 }
-        ], { duration: 420 + Math.random()*180, easing:'cubic-bezier(.2,.7,.3,1)' });
-
-        setTimeout(()=>p.remove(), 650);
-      }
-    });
-  }
-
-  function spawnCrackParticles(cellsToClear){
-    const rect = boardEl.getBoundingClientRect();
-    const padding = 8, gap = 4;
-    const cellW = (rect.width - padding*2 - gap*(SIZE-1)) / SIZE;
-    const total = cellsToClear.length || 1;
-    const count = total > 12 ? 2 : (total > 6 ? 3 : CONFIG.CRACK_PARTICLE_COUNT);
-
-    const existing = document.querySelectorAll('.particle');
-    if (existing.length > 36) {
-      for (let k = 0; k < existing.length - 20; k++) existing[k].remove();
-    }
-
-    cellsToClear.forEach(key=>{
-      const [r,c] = key.split('_').map(Number);
-      const cx = rect.left + padding + c*(cellW+gap) + cellW/2;
-      const cy = rect.top + padding + r*(cellW+gap) + cellW/2;
-
-      const grays = ['#8b90a3','#6b7185','#a9adbd'];
-      for(let i=0;i<count;i++){
-        const p = document.createElement('div');
-        p.className = 'particle';
-        p.style.width = '4px'; p.style.height = '4px';
-        p.style.background = grays[i % grays.length];
-        p.style.left = cx+'px';
-        p.style.top = cy+'px';
-        document.body.appendChild(p);
-
-        const angle = (Math.PI*2*i/count) + Math.random()*0.6;
-        const dist = 12 + Math.random()*16;
-        const dx = Math.cos(angle)*dist;
-        const dy = Math.sin(angle)*dist;
-
-        p.animate([
-          { transform:'translate3d(0,0,0) scale(1)', opacity:1 },
-          { transform:`translate3d(${dx}px, ${dy}px, 0) scale(0.4)`, opacity:0 }
-        ], { duration: 260 + Math.random()*100, easing:'cubic-bezier(.2,.7,.3,1)' });
-
-        setTimeout(()=>p.remove(), 400);
-      }
-    });
-  }
-
   const bombTickers = new Map(); // key "r_c" -> {r,c}
   let bombInterval = null;
 
@@ -2527,20 +1827,6 @@
     label.classList.remove('pop');
     void label.offsetWidth;
     label.classList.add('pop');
-  }
-
-  function spawnShockwave(r,c){
-    const rect = boardEl.getBoundingClientRect();
-    const padding = 8, gap = 4;
-    const cellW = (rect.width - padding*2 - gap*(SIZE-1)) / SIZE;
-    const cx = rect.left + padding + c*(cellW+gap) + cellW/2;
-    const cy = rect.top + padding + r*(cellW+gap) + cellW/2;
-    const wave = document.createElement('div');
-    wave.className = 'shockwave';
-    wave.style.left = cx + 'px';
-    wave.style.top = cy + 'px';
-    document.body.appendChild(wave);
-    setTimeout(()=> wave.remove(), 600);
   }
 
   function explodeBomb(r,c){
@@ -3067,26 +2353,6 @@
     return Math.round((rows * 0.5 + userDragOffsetMultiplier) * cellW);
   }
 
-  let sparkThrottle = 0;
-  function spawnSpark(x, y) {
-    if (!particleTrailEnabled) return;
-    sparkThrottle++;
-    if (sparkThrottle % 2 !== 0) return;
-    if (document.querySelectorAll('.drag-spark').length > 10) return;
-
-    const spark = document.createElement('div');
-    spark.className = 'drag-spark';
-    spark.style.left = x + 'px';
-    spark.style.top = y + 'px';
-    const dx = (Math.random() - 0.5) * 36;
-    const dy = (Math.random() - 0.5) * 36;
-    spark.style.setProperty('--dx', dx + 'px');
-    spark.style.setProperty('--dy', dy + 'px');
-
-    document.body.appendChild(spark);
-    setTimeout(() => spark.remove(), 420);
-  }
-
   function moveGhost(x,y){
     const {rows, cols} = shapeSize(dragging.piece.shape);
     const cellW = (cachedBoardGeometry || getCellGeometry()).cellW;
@@ -3442,13 +2708,7 @@
     }, CONFIG.RESTART_DEBOUNCE_MS);
   });
 
-  document.getElementById('showLbBtn').addEventListener('click', ()=>{
-    debounceAction('showLb', ()=>{
-      returnToOverlayOnLbClose = true;
-      overlayEl.style.display = 'none';
-      openLeaderboard();
-    }, CONFIG.RESTART_DEBOUNCE_MS);
-  });
+  // NAPOMENA: listener za #showLbBtn sada registruje js/leaderboard.js (initLeaderboard)
 
   /* ═══════════════════════════════════════════════
    *  PAUSE / MUTE CONTROLS
@@ -3493,7 +2753,7 @@
   });
 
   // Startup: analytics + icon state
-  setMuted(muted);
+  setMuted(isMuted());
   loadAnalytics();
   trackRetention();
 

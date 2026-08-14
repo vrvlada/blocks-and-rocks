@@ -1,11 +1,10 @@
 /*
  * Blocks & Rocks — i18n prevodi (sr, en, de, es, fr, ru)
  *
- * Izdvojeno iz app.js (modularizacija — faza 1).
- * Učitava se kao klasična skripta PRE app.js; app.js čita window.BR_I18N.
+ * ES modul (modularizacija — faza 1). Importeri: app.js, js/leaderboard.js
  */
 
-window.BR_I18N = {
+export const TRANSLATIONS = {
     sr: {
       sub: "STATIČKA SLAGALICA",
       scoreLabel: "SKOR",

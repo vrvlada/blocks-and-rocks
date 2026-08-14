@@ -15,7 +15,13 @@ npm test           # unit testovi (node --test)
 | Putanja | Opis |
 |---|---|
 | `www/` | Izvorni kod aplikacije (HTML/CSS/JS) — **ovde se menja** |
-| `www/gameCore.js` | Čista logika igre (bez DOM-a), pokrivena testovima |
+| `www/app.js` | ES modul — orkestrator (Firebase, identitet, geolokacija, game core, drag&drop, bombe) |
+| `www/gameCore.js` | Čista logika igre (bez DOM-a), pokrivena testovima; klasična skripta (`window.GameCore`) |
+| `www/i18n.js` | ES modul — prevodi (sr, en, de, es, fr, ru), `export const TRANSLATIONS` |
+| `www/js/audio.js` | ES modul — zvuk (Web Audio) + haptika; poseduje `muted`/`hapticMode` stanje (`initAudio`) |
+| `www/js/effects.js` | ES modul — confetti, shake, particles, score float, spark trail (`initEffects`) |
+| `www/js/leaderboard.js` | ES modul — rang lista + bottom records + UI listeneri (`initLeaderboard`) |
+| `www/js/utils.js` | ES modul — `escapeHtml` (anti-XSS) |
 | `tests/` | Unit testovi (`npm test`) |
 | `firebase/` | Firestore security rules + indeksi |
 | `tools/` | Jednokratne skripte (npr. migracija legacy `scores` → `leaderboard`) |
