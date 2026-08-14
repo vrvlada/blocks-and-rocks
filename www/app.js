@@ -1711,6 +1711,17 @@
       if(!Array.isArray(queue) || !queue.length) return;
 
       console.log('[B&R] Syncing ' + queue.length + ' offline score(s)...');
+
+      // PRVO profil — security rules vezuju leaderboard za users/{uid}.username,
+      // pa upisi bez profila (ili sa zastarelim imenom) bivaju odbijeni.
+      const profileCc = (countryCode && countryCode !== 'XX') ? countryCode : guessCountryFromDevice();
+      await fb_db.collection('users').doc(fb_userId).set({
+        username: username.trim(),
+        countryCode: profileCc && profileCc.length === 2 ? profileCc : 'XX',
+        personalBest: personalBest,
+        updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
+      }, { merge: true });
+
       for(const item of queue){
         if(!item || !item.score || isNaN(item.score)) continue;
         const cc = (item.countryCode && item.countryCode !== 'XX') ? item.countryCode : ((countryCode && countryCode !== 'XX') ? countryCode : guessCountryFromDevice());
@@ -1725,15 +1736,6 @@
         });
       }
       localStorage.removeItem('blocksrocks_pendingScores');
-
-      // Update cloud profile with personal best and country
-      const validCc = (countryCode && countryCode !== 'XX') ? countryCode : guessCountryFromDevice();
-      fb_db.collection('users').doc(fb_userId).set({
-        username: username.trim(),
-        countryCode: validCc && validCc.length === 2 ? validCc : 'XX',
-        personalBest: personalBest,
-        updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-      }, { merge: true }).catch(err => console.warn('[B&R] Profile sync warning:', err));
 
       await capUserEntries();
       if(typeof updateBottomRecords === 'function') await updateBottomRecords(true);
@@ -1779,13 +1781,15 @@
 
     try {
       // 3. Update user profile in Firestore with personalBest & country
+      //    AWAIT je obavezan — security rules vezuju leaderboard za users/{uid}.username,
+      //    pa leaderboard upis pre osveženog profila biva odbijen (permission-denied).
       if(fb_db){
-        fb_db.collection('users').doc(fb_userId).set({
+        await fb_db.collection('users').doc(fb_userId).set({
           username: username.trim(),
           countryCode: validCc,
           personalBest: personalBest,
           updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-        }, { merge: true }).catch(err => console.warn('[B&R] User profile update notice:', err));
+        }, { merge: true });
       }
 
       // 4. Add to leaderboard collection
@@ -1849,10 +1853,18 @@
       const myDocs = mine.docs.map(d => d.data());
       if(myDocs.some(d => (Number(d.score) || 0) >= legacyScore)) return;
 
-      const uname = (typeof data.username === 'string' && data.username.length >= 3 && data.username.length <= 12)
-        ? data.username : (username && username.length >= 3 ? username : 'Igrač');
+      // Rules binding: leaderboard.username mora biti jednak users/{uid}.username,
+      // pa migrirani rezultat upisujemo pod TRENUTNIM imenom korisnika (ne legacy).
+      const uname = (username && username.trim().length >= 3) ? username.trim() : null;
+      if (!uname) { console.warn('[B&R] Legacy migration skipped: no registered username yet.'); return; }
       const cc = (typeof data.countryCode === 'string' && data.countryCode.length === 2 && data.countryCode !== 'XX')
         ? data.countryCode : (countryCode && countryCode !== 'XX' ? countryCode : guessCountryFromDevice());
+
+      // Osiguraj da profil postoji PRE upisa u leaderboard (rules proveravaju profil)
+      await fb_db.collection('users').doc(fb_userId).set({
+        username: uname,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
 
       const added = await fb_db.collection('leaderboard').add({
         userId: fb_userId,

@@ -66,3 +66,15 @@ Site Key je javni identifikator (kao i Firebase apiKey) — nije tajna.
 
 ### Android napomena
 Aplikacija i u Android WebView-u koristi **web** Firebase SDK, pa važi isti reCAPTCHA v3 provider (Play Integrity nije potreban). Zato `localhost` mora biti registrovan domen u reCAPTCHA konzoli (korak 1).
+
+---
+
+## 🔗 Leaderboard ↔ profil vezivanje (anti-impersonation)
+
+Security rules zahtevaju da `username` u svakom `leaderboard` unosu bude **jednak** `users/{uid}.username` — niko ne može slati rezultate pod tuđim imenom. Posledice u kodu:
+
+- Klijent uvek **prvo** upisuje/osvežava profil (`users/{uid}`), **pa onda** leaderboard dokument (`submitScore`, `syncOfflineScores`, `migrateLegacyScore`).
+- Upis bez profila ili sa zastarelim imenom → `permission-denied` → rezultat ide u offline queue i ponavlja se kasnije.
+- Promena nadimka **ne menja** stare unose (dokumenti su immutable) — očekivano ponašanje.
+- `tools/migrate-legacy-firestore.js` koristi Admin SDK → zaobilazi rules (radi nepromenjen).
+- Napomena o ceni: rules `get()` na profil = 1 dodatni read po upisu rezultata.

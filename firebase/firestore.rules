@@ -55,7 +55,10 @@ service cloud.firestore {
         && request.resource.data.countryCode is string
         && request.resource.data.countryCode.size() == 2
         // Timestamp mora biti serverski — sprečava lažiranje vremena (tie-break sortiranje)
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        // Anti-impersonation: username mora biti jednak vlasnikovom profilu (users/{uid}).
+        // Klijent zato uvek PRVO upisuje/osvežava profil, pa tek onda leaderboard dokument.
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == request.resource.data.username;
 
       // No editing (each game is immutable)
       allow update: if false;
