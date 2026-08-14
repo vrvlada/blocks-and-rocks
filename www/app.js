@@ -35,7 +35,6 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
    * ═══════════════════════════════════════════════ */
   let fb_app, fb_appCheck, fb_auth, fb_db, fb_userId = null;
   let firebaseReady = false;
-  let pendingScore = null; // best score awaiting Firebase auth before submit
   // muted / hapticMode stanje: vlasništvo js/audio.js modula
   // username/personalBest deklarisani rano (TDZ: init catch ispod ih sinhrono referencira)
   let username = localStorage.getItem('blocksrocks_username') || '';
@@ -64,23 +63,45 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       fb_auth = firebase.auth();
       fb_db = firebase.firestore();
 
-      // Catch redirect results for native WebView OAuth flow
-      fb_auth.getRedirectResult().then(result => {
-        if (result && result.user) {
-          console.log('[B&R] Redirect Auth / Link OK:', result.user.uid);
-          if (typeof updateGoogleLinkStatus === 'function') updateGoogleLinkStatus();
-        }
-      }).catch(err => {
-        if (err.code === 'auth/credential-already-in-use' && err.credential) {
-          console.warn('[B&R] Google account already linked to another profile, signing into Google profile...');
-          fb_auth.signInWithCredential(err.credential).then(res => {
-            console.log('[B&R] Signed into existing Google account:', res.user.uid);
+      // Catch redirect results for native WebView OAuth flow (sa 10s timeout-om)
+      const redirectTimeoutMs = 10000;
+      let redirectTimerId = null;
+      const redirectTimeout = new Promise((_, reject) => {
+        redirectTimerId = setTimeout(() => reject(new Error('redirect_timeout')), redirectTimeoutMs);
+      });
+      const redirectRace = Promise.race([
+        fb_auth.getRedirectResult().then(result => {
+          if (result && result.user) {
+            console.log('[B&R] Redirect Auth / Link OK:', result.user.uid);
+            // Obavezno obradi identity + localStorage flag-e (isto kao popup flow) —
+            // inače se veza ničim ne registruje i dugme ostaje vidljivo.
+            if (typeof handleGoogleSignInSuccess === 'function') {
+              handleGoogleSignInSuccess(result.user);
+            }
             if (typeof updateGoogleLinkStatus === 'function') updateGoogleLinkStatus();
-          });
-        } else {
-          console.warn('[B&R] Redirect Auth error:', err.code, err.message);
+          }
+        }).catch(err => {
+          if (err.code === 'auth/credential-already-in-use' && err.credential) {
+            console.warn('[B&R] Google account already linked to another profile, signing into Google profile...');
+            fb_auth.signInWithCredential(err.credential).then(res => {
+              console.log('[B&R] Signed into existing Google account:', res.user.uid);
+              if (typeof handleGoogleSignInSuccess === 'function') {
+                handleGoogleSignInSuccess(res.user);
+              }
+              if (typeof updateGoogleLinkStatus === 'function') updateGoogleLinkStatus();
+            });
+          } else {
+            console.warn('[B&R] Redirect Auth error:', err.code, err.message);
+          }
+        }),
+        redirectTimeout,
+      ]);
+      redirectRace.catch(err => {
+        if (err && err.message === 'redirect_timeout') {
+          console.warn('[B&R] Redirect Auth timed out after', redirectTimeoutMs, 'ms, continuing anonymously');
         }
       }).finally(() => {
+        if (redirectTimerId) { clearTimeout(redirectTimerId); redirectTimerId = null; }
         // Anonymous sign-in tek NAKON što se redirect rezultat razreši —
         // sprečava trku u kojoj se napravi novi anonimni nalog usred Google redirect-a.
         if (fb_auth.currentUser) return;
@@ -387,7 +408,26 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     setText('resumeBtn', t.resumeBtn);
     const pmBtn = document.getElementById('pauseMuteBtn');
     if (pmBtn) pmBtn.textContent = (isMuted() ? '🔇 ' : '🔊 ') + t.pauseMutePrefix + (isMuted() ? t.soundOff : t.soundOn);
+    const pauseMuteBtn = document.getElementById('pauseMuteBtn');
+    if (pauseMuteBtn) {
+      pauseMuteBtn.title = t.pauseMutePrefix + (isMuted() ? t.soundOff : t.soundOn);
+      pauseMuteBtn.setAttribute('aria-label', pauseMuteBtn.title);
+    }
     setText('pauseRestartBtn', t.pauseRestartBtn);
+
+    // Ažuriranje power-up dugmadi (Hammer / Reroll)
+    const bHammer = document.getElementById('btnHammer');
+    if (bHammer) {
+      const titleHammer = (t.puHammerText || 'ČEKIĆ') + ' — ' + (t.puHammerActive || '');
+      bHammer.title = titleHammer;
+      bHammer.setAttribute('aria-label', titleHammer);
+    }
+    const bReroll = document.getElementById('btnReroll');
+    if (bReroll) {
+      const titleReroll = (t.puRerollText || 'ZAMENI');
+      bReroll.title = titleReroll;
+      bReroll.setAttribute('aria-label', titleReroll);
+    }
 
     const settingsH3 = document.getElementById('settingsHeading') || document.querySelector('#username-modal h3');
     if (settingsH3) settingsH3.textContent = isOnboarding ? (t.onboardingTitle || '👋 DOBRODOŠLI!') : t.settingsTitle;
@@ -688,6 +728,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     if (!googleUser) return;
     const gUid = googleUser.uid;
     fb_userId = gUid;
+    firebaseReady = true; // Sinhronizuj identitet pre nego sync funkcije pročitaju fb_userId
     localStorage.setItem('blocksrocks_userId', fb_userId);
     localStorage.setItem('blocksrocks_googleLinked', '1');
     localStorage.setItem('blocksrocks_googleEmail', googleUser.email || '');
@@ -2068,30 +2109,44 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     sfxBomb();
     triggerScreenShake('heavy');
 
-    const affected = [];
-    for(let dr=-1;dr<=1;dr++){
-      for(let dc=-1;dc<=1;dc++){
-        const rr=r+dr, cc=c+dc;
-        if(rr>=0&&rr<SIZE&&cc>=0&&cc<SIZE){
-          const data = grid[rr][cc];
-          if(data) affected.push({r:rr, c:cc, willRemove: data.hp <= 1});
-        }
-      }
-    }
+    // Čista logika eksplozije (pokrivena testovima): uklonjeno/napuklo + uništene stene.
+    const { affected, removedCount, crackedCount, rocksCrushed } = GameCore.countBombExplosionStats(grid, SIZE, r, c);
+
+    // Očuvaj redosled "blizina = prvo" za stagger animaciju eksplozije
     affected.sort((a,b)=> Math.hypot(a.r-r,a.c-c) - Math.hypot(b.r-r,b.c-c));
 
-    const affectedSnapshot = affected.map(pos => {
-      const data = grid[pos.r][pos.c];
-      return {
-        ...pos,
-        color: data ? data.color : '#fb7185',
-        willRemove: data ? data.hp <= 1 : true,
-      };
+    // Zajednička stagger animacija (pulse bonus, particles, clearance)
+    animateStaggeredCellRemoval(affected, CONFIG.BOMB_STAGGER, CONFIG.CLEAR_ANIM_DURATION, ()=>{
+      clearLines(()=>{
+        checkAndTriggerGameOver(CONFIG.GAME_OVER_DELAY_AFTER_BOMB);
+      });
     });
 
-    const stagger = CONFIG.BOMB_STAGGER;
+    // Career stats: stene uništene eksplozijom se broje (bedž rock_crusher).
+    // Napomena: bomba koja je EKSPLODIRALA se ne računa kao "defused" (nije neutralisana).
+    if(rocksCrushed > 0) recordCareerStat('rocksCrushed', rocksCrushed);
+    const bombBonus = removedCount*2 + crackedCount*1 + 10;
+    const prevBombScore = score;
+    score += bombBonus;
+    showScoreFloat(bombBonus);
+    grantPowerupRewards(prevBombScore, score, CONFIG.MSG_DURATION_BOMB);
+    const tBomb = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    showMsg((tBomb.msgExplosion || '💥 EKSPLOZIJA! +') + bombBonus, CONFIG.MSG_DURATION_BOMB);
+    track('bomb_explode', { bonus: bombBonus });
+  }
 
-    affectedSnapshot.forEach((pos,i)=>{
+  /**
+   * Zajednička asinhrona animacija za uklanjanje ćelija sa staggerom.
+   * Postavlja vizual (clearing klasa, bomb label cleanup, particles),
+   * zatim nakon totalDelay čisti grid i poziva onDone.
+   *
+   * @param {Array<{r:number, c:number, willRemove:boolean}>} cells — ćelije za animaciju
+   * @param {number} stagger — kašnjenje po ćeliji (ms)
+   * @param {number} animDuration — vreme dodatnog čekanja posle poslednje ćelije (ms)
+   * @param {Function} onDone — poziva se posle čišćenja DOM-a i grida
+   */
+  function animateStaggeredCellRemoval(cells, stagger, animDuration, onDone){
+    cells.forEach((pos, i)=>{
       if(pos.willRemove) checkAndCollectPulseBonus(pos.r, pos.c);
       setTimeout(()=>{
         const data = grid[pos.r][pos.c];
@@ -2104,6 +2159,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
             el.classList.remove('bomb-cell');
             const lbl = el.querySelector('.bomb-label');
             if(lbl) lbl.remove();
+            el.classList.remove('pop-in');
             el.classList.add('clearing');
           }
           spawnParticles([pos.r+'_'+pos.c]);
@@ -2120,32 +2176,19 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       }, i*stagger);
     });
 
-    const removedCount = affectedSnapshot.filter(p=>p.willRemove).length;
-    const crackedCount = affectedSnapshot.length - removedCount;
-    const bombBonus = removedCount*2 + crackedCount*1 + 10;
-    const prevBombScore = score;
-    score += bombBonus;
-    showScoreFloat(bombBonus);
-    grantPowerupRewards(prevBombScore, score, CONFIG.MSG_DURATION_BOMB);
-    const tBomb = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    showMsg((tBomb.msgExplosion || '💥 EKSPLOZIJA! +') + bombBonus, CONFIG.MSG_DURATION_BOMB);
-    track('bomb_explode', { bonus: bombBonus });
-
-    const totalDelay = affectedSnapshot.length*stagger + CONFIG.CLEAR_ANIM_DURATION;
+    const totalDelay = cells.length*stagger + animDuration;
     setTimeout(()=>{
-      affectedSnapshot.forEach(pos=>{
-        if(pos.willRemove) {
-          grid[pos.r][pos.c] = null;
-          const idx = pos.r*SIZE+pos.c;
+      cells.forEach(({r,c,willRemove})=>{
+        if(willRemove) {
+          grid[r][c] = null;
+          const idx = r*SIZE+c;
           const el = boardEl.children[idx];
           if(el) el.classList.remove('clearing');
         }
       });
       lineClearInProgress = false;
       render();
-      clearLines(()=>{
-        checkAndTriggerGameOver(CONFIG.GAME_OVER_DELAY_AFTER_BOMB);
-      });
+      if(onDone) onDone();
     }, totalDelay);
   }
 
@@ -2180,36 +2223,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       return {r,c,key,willRemove};
     }).sort((a,b)=> (a.r-b.r) || (a.c-b.c));
 
-    const stagger = CONFIG.LINE_CLEAR_STAGGER;
-
-    cellsArr.forEach(({r,c,key,willRemove}, i)=>{
-      if(willRemove) checkAndCollectPulseBonus(r, c);
-      setTimeout(()=>{
-        const idx = r*SIZE+c;
-        const el = boardEl.children[idx];
-        if(willRemove){
-          if(el){
-            el.style.color = el.style.backgroundColor;
-            el.classList.remove('bomb-cell');
-            const lbl = el.querySelector('.bomb-label');
-            if(lbl) lbl.remove();
-            el.classList.remove('pop-in');
-            el.classList.add('clearing');
-          }
-          spawnParticles([key]);
-        } else {
-          const cellData = grid[r][c];
-          if(cellData) cellData.hp -= 1;
-          if(el){
-            el.classList.remove('stone-full');
-            el.classList.add('stone-cracked','cracking');
-            el.style.backgroundColor = '';
-          }
-          sfxRockCrack();
-          spawnCrackParticles([key]);
-        }
-      }, i*stagger);
-    });
+    // Zajednička stagger animacija (pulse bonus, particles, clearance)
+    animateStaggeredCellRemoval(cellsArr, CONFIG.LINE_CLEAR_STAGGER, CONFIG.CLEAR_ANIM_DURATION, onCleared);
 
     const removedCount = cellsArr.filter(c=>c.willRemove).length;
     const crackedCount = cellsArr.length - removedCount;
@@ -2249,21 +2264,6 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
     // Power-up nagrade (poruke odložene da ne prebiju poruku o čišćenju linija)
     grantPowerupRewards(prevScoreBeforeLines, score, CONFIG.MSG_DURATION_CLEAR);
-
-    const totalDelay = cellsArr.length*stagger + CONFIG.CLEAR_ANIM_DURATION;
-    setTimeout(()=>{
-      cellsArr.forEach(({r,c,willRemove})=>{
-        if(willRemove) {
-          grid[r][c] = null;
-          const idx = r*SIZE+c;
-          const el = boardEl.children[idx];
-          if(el) el.classList.remove('clearing');
-        }
-      });
-      lineClearInProgress = false;
-      render();
-      if(onCleared) onCleared();
-    }, totalDelay);
   }
 
   function handleCellClick(r, c){
@@ -2318,6 +2318,68 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     }
   }
 
+  /**
+   * Briše sve dinamičke dekoratore ćelije (bomb label, pulse bonus label).
+   */
+  function clearCellDecorators(div){
+    const lbl = div.querySelector('.bomb-label');
+    if(lbl) lbl.remove();
+    const pb = div.querySelector('.pulse-bonus-label');
+    if(pb) pb.remove();
+  }
+
+  /**
+   * Održava bomb label element unutar ćelije (stvara/briše).
+   */
+  function renderBombLabel(div, data){
+    if(data && data.bomb){
+      let label = div.querySelector('.bomb-label');
+      if(!label){
+        label = document.createElement('div');
+        label.className = 'bomb-label';
+        div.appendChild(label);
+      }
+      label.textContent = data.timer || 3;
+    } else {
+      const label = div.querySelector('.bomb-label');
+      if(label) label.remove();
+    }
+  }
+
+  /**
+   * Održava pulse bonus label element unutar ćelije (stvara/briše).
+   */
+  function renderPulseLabel(div, data){
+    if(data && data.isPulseBonus){
+      let pbLabel = div.querySelector('.pulse-bonus-label');
+      if(!pbLabel){
+        pbLabel = document.createElement('div');
+        pbLabel.className = 'pulse-bonus-label';
+        div.appendChild(pbLabel);
+      }
+      pbLabel.innerHTML = '<span class="pb-sec">' + (data.pulseTimer || 10) + 's</span><span class="pb-pts">+100</span>';
+    } else {
+      const pbLabel = div.querySelector('.pulse-bonus-label');
+      if(pbLabel) pbLabel.remove();
+    }
+  }
+
+  /**
+   * Izračunava CSS klasu za ćeliju na osnovu podataka o kockici.
+   */
+  function cellClassName(data){
+    if(!data) return 'cell';
+    let cls = 'cell filled';
+    if(data.maxHp === 2 && data.hp >= 2) cls += ' stone-full';
+    else if(data.maxHp === 2 && data.hp === 1) cls += ' stone-cracked';
+    if(data.bomb) cls += ' bomb-cell';
+    if(data.isPulseBonus){
+      cls += ' pulse-bonus-cell';
+      if(data.pulseTimer <= 3) cls += ' urgent';
+    }
+    return cls;
+  }
+
   function render(){
     try {
       if (!cellElements || cellElements.length !== SIZE * SIZE) {
@@ -2330,17 +2392,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           if(div.classList.contains('clearing')) continue;
 
           const data = (grid && grid[r]) ? grid[r][c] : null;
-          let cls = 'cell';
-          if(data){
-            cls += ' filled';
-            if(data.maxHp === 2 && data.hp >= 2) cls += ' stone-full';
-            else if(data.maxHp === 2 && data.hp === 1) cls += ' stone-cracked';
-            if(data.bomb) cls += ' bomb-cell';
-            if(data.isPulseBonus) {
-              cls += ' pulse-bonus-cell';
-              if(data.pulseTimer <= 3) cls += ' urgent';
-            }
-          }
+          const cls = cellClassName(data);
           if (div.className !== cls) {
             div.className = cls;
           }
@@ -2350,37 +2402,11 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
             } else {
               div.style.backgroundColor = data.color || '#5eead4';
             }
-            if(data.bomb){
-              let label = div.querySelector('.bomb-label');
-              if(!label){
-                label = document.createElement('div');
-                label.className = 'bomb-label';
-                div.appendChild(label);
-              }
-              label.textContent = data.timer || 3;
-            } else {
-              const label = div.querySelector('.bomb-label');
-              if(label) label.remove();
-            }
-
-            if(data.isPulseBonus){
-              let pbLabel = div.querySelector('.pulse-bonus-label');
-              if(!pbLabel){
-                pbLabel = document.createElement('div');
-                pbLabel.className = 'pulse-bonus-label';
-                div.appendChild(pbLabel);
-              }
-              pbLabel.innerHTML = '<span class="pb-sec">' + (data.pulseTimer || 10) + 's</span><span class="pb-pts">+100</span>';
-            } else {
-              const pbLabel = div.querySelector('.pulse-bonus-label');
-              if(pbLabel) pbLabel.remove();
-            }
+            renderBombLabel(div, data);
+            renderPulseLabel(div, data);
           } else {
             div.style.backgroundColor = '';
-            const label = div.querySelector('.bomb-label');
-            if(label) label.remove();
-            const pbLabel = div.querySelector('.pulse-bonus-label');
-            if(pbLabel) pbLabel.remove();
+            clearCellDecorators(div);
           }
         }
       }
@@ -2770,6 +2796,29 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     }
   }
 
+  /**
+   * localStorage.setItem sa eksplicitnim oporavkom na QuotaExceededError:
+   * brise manje kritične ključeve (gameState, pendingScores, matchHistory) i pokušava ponovo.
+   * Na kraju samo loguje — NE puca.
+   */
+  function safeSetItem(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      if (e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014)) {
+        console.warn('[B&R] localStorage quota exceeded, clearing cached state');
+        ['blocksrocks_gameState', 'blocksrocks_pendingScores', 'blocksrocks_matchHistory'].forEach(k => {
+          if (k !== key) localStorage.removeItem(k);
+        });
+        try {
+          localStorage.setItem(key, value);
+          return;
+        } catch (e2) { /* still full — give up */ }
+      }
+      console.warn('[B&R] localStorage write failed for', key, e && e.message);
+    }
+  }
+
   /* ═══════════════════════════════════════════════
    *  CAREER STATISTICS (Lifetime Stats Dashboard)
    * ═══════════════════════════════════════════════ */
@@ -2791,10 +2840,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     } catch(e){}
   }
 
-  function saveCareerStats(){
-    try {
-      localStorage.setItem('blocksrocks_careerStats', JSON.stringify(careerStats));
-    } catch(e){}
+  function saveCareerStats() {
+    safeSetItem('blocksrocks_careerStats', JSON.stringify(careerStats));
   }
 
   function recordCareerStat(key, increment = 1){
@@ -2847,8 +2894,10 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         timestamp: Date.now()
       });
       if(history.length > 10) history = history.slice(0, 10);
-      localStorage.setItem('blocksrocks_matchHistory', JSON.stringify(history));
-    } catch(e){}
+      safeSetItem('blocksrocks_matchHistory', JSON.stringify(history));
+    } catch(e){
+      console.warn('[B&R] saveMatchToHistory failed:', e && e.message);
+    }
   }
 
   function renderMatchHistory(){

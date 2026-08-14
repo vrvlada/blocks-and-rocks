@@ -267,7 +267,7 @@ export async function loadLeaderboard(tab){
   let res;
   if(tab === 'country'){
     if(countryCode === 'XX'){
-      lbCountryLabel.textContent = t.lbLocationUnavailable || '🌐 Lokacija nedostupna — World TOP 100';
+      lbCountryLabel.textContent = t.lbLocationUnavailable || '🌐 Lokacija nedostupna — World TOP 25';
       lbCountryLabel.style.display = '';
       res = await fetchGlobalBatch(null, PAGE_SIZE);
     } else {

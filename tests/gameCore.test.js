@@ -251,3 +251,58 @@ test('PULSE_BONUS constants are defined with correct 2-3min intervals, 10s durat
   assert.equal(G.PULSE_BONUS_MIN_INTERVAL_MS, 120000); // 2 minutes
   assert.equal(G.PULSE_BONUS_MAX_INTERVAL_MS, 180000); // 3 minutes
 });
+
+test('countBombExplosionStats: no-op when bomb cell is missing', () => {
+  const grid = G.makeGrid(5);
+  const res = G.countBombExplosionStats(grid, 5, 2, 2);
+  assert.deepEqual(res, { affected: [], removedCount: 0, crackedCount: 0, rocksCrushed: 0 });
+  assert.deepEqual(G.countBombExplosionStats(null, 5, 0, 0), { affected: [], removedCount: 0, crackedCount: 0, rocksCrushed: 0 });
+});
+
+test('countBombExplosionStats: includes bomb centre for removal scoring but not as rock', () => {
+  const grid = G.makeGrid(5);
+  // Popuni ceo 3x3 blok da affected bude 9
+  for (let r = 1; r <= 3; r++) {
+    for (let c = 1; c <= 3; c++) {
+      grid[r][c] = { color: '#bbb', hp: 1, maxHp: 1 };
+    }
+  }
+  grid[2][2] = { color: '#000', hp: 1, maxHp: 1, bomb: true, timer: 3 }; // centralna bomba
+  const res = G.countBombExplosionStats(grid, 5, 2, 2);
+  assert.equal(res.affected.length, 9);
+  const centre = res.affected.find(p => p.r === 2 && p.c === 2);
+  assert.ok(centre, 'bomb centre is in affected list');
+  assert.equal(centre.willRemove, true);
+  assert.equal(centre.isRock, false, 'bomb is not a rock');
+  assert.equal(centre.isBomb, true);
+  // Sve ćelije se uklanjaju (hp:1) → removedCount 9, rocksCrushed 0
+  assert.equal(res.removedCount, 9);
+  assert.equal(res.crackedCount, 0);
+  assert.equal(res.rocksCrushed, 0);
+});
+
+test('countBombExplosionStats: counts rocks destroyed by explosion (rock_crusher regresija)', () => {
+  const grid = G.makeGrid(5);
+  grid[2][2] = { color: '#000', hp: 1, maxHp: 1, bomb: true, timer: 3 };   // centralna bomba
+  grid[1][1] = { color: '#aaa', hp: 2, maxHp: 2 };                          // cela stena (biće napukla, hp:2>1)
+  grid[1][2] = { color: '#aaa', hp: 1, maxHp: 2 };                          // napukla stena (biće uništena)
+  grid[2][1] = { color: '#bbb', hp: 1, maxHp: 1 };                          // obična kocka (biće uklonjena)
+  const res = G.countBombExplosionStats(grid, 5, 2, 2);
+  // affected: bomba + 1 cela stena + 1 napukla stena + 1 kocka = 4 zauzete ćelije u 3x3
+  assert.equal(res.affected.length, 4);
+  // removedCount = bomba + napukla stena + kocka = 3; crackedCount = cela stena = 1
+  assert.equal(res.removedCount, 3);
+  assert.equal(res.crackedCount, 1);
+  // rocksCrushed = samo napukla stena koja je uklonjena = 1 (cela stena samo napukla, nije uništena)
+  assert.equal(res.rocksCrushed, 1);
+});
+
+test('countBombExplosionStats: out-of-bounds neighbours are skipped', () => {
+  const grid = G.makeGrid(3);
+  grid[0][0] = { color: '#000', hp: 1, maxHp: 1, bomb: true, timer: 3 }; // bomba u uglu
+  grid[0][1] = { color: '#aaa', hp: 1, maxHp: 2 };                       // napukla stena (ubištena)
+  const res = G.countBombExplosionStats(grid, 3, 0, 0);
+  assert.equal(res.affected.length, 2); // samo ćelije unutar table
+  assert.equal(res.rocksCrushed, 1);
+  assert.equal(res.removedCount, 2);
+});

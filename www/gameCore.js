@@ -130,6 +130,41 @@
     return rotated.map(([r, c]) => [r - minR, c - minC]);
   }
 
+  /**
+   * Računa statistiku eksplozije bombe na (r, c): broj uklonjenih ćelija, napuklih,
+   * i uništenih stena — čista logika (bez DOM-a).
+   * Vraća { affected, removedCount, crackedCount, rocksCrushed }.
+   * `affected` sadrži i samo polje bombe (da bi se skor za uklanjanje poklapao sa
+   * postojećim ponašanjem), ali bombe eksplodirane NISU "defused" i NISU stene,
+   * pa se ne računaju u `rocksCrushed`. Elementi niza: {r, c, color, willRemove, isRock, isBomb}.
+   */
+  function countBombExplosionStats(grid, size, bombR, bombC) {
+    if (!grid || !grid[bombR] || !grid[bombR][bombC]) {
+      return { affected: [], removedCount: 0, crackedCount: 0, rocksCrushed: 0 };
+    }
+    const affected = [];
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const rr = bombR + dr, cc = bombC + dc;
+        if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
+        const data = grid[rr][cc];
+        if (!data) continue;
+        const willRemove = data.hp <= 1;
+        affected.push({
+          r: rr, c: cc,
+          color: data.color || '#fb7185',
+          willRemove,
+          isRock: !!(data.maxHp === 2),
+          isBomb: !!data.bomb,
+        });
+      }
+    }
+    const removedCount = affected.filter(p => p.willRemove).length;
+    const crackedCount = affected.length - removedCount;
+    const rocksCrushed = affected.filter(p => p.willRemove && p.isRock).length;
+    return { affected, removedCount, crackedCount, rocksCrushed };
+  }
+
   /** Da li na tabli `grid` postoji ijedna aktivna bomba. */
   function hasActiveBombsOn(grid, size) {
     size = size || SIZE;
@@ -306,6 +341,7 @@
     anyPlacementOn,
     trayAnyPlacementOn,
     hasActiveBombsOn,
+    countBombExplosionStats,
     sortScoresByTop,
     mergePages,
     rotateShapeCW,
