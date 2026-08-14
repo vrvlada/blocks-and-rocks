@@ -36,6 +36,9 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
   let firebaseReady = false;
   let pendingScore = null; // best score awaiting Firebase auth before submit
   // muted / hapticMode stanje: vlasništvo js/audio.js modula
+  // username/personalBest deklarisani rano (TDZ: init catch ispod ih sinhrono referencira)
+  let username = localStorage.getItem('blocksrocks_username') || '';
+  let personalBest = parseInt(localStorage.getItem('blocksrocks_personalBest') || '0');
 
   try {
     if (typeof firebase !== 'undefined' && firebase.initializeApp) {
@@ -283,8 +286,7 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
   /* ═══════════════════════════════════════════════
    *  USER PROFILE & IDENTITY STATE
    * ═══════════════════════════════════════════════ */
-  let username = localStorage.getItem('blocksrocks_username') || '';
-  let personalBest = parseInt(localStorage.getItem('blocksrocks_personalBest') || '0');
+  // username / personalBest deklarisani na vrhu fajla (init catch ih referencira)
   let isOnboarding = false;
   let isUsernameAvailable = false;
   let isCheckingAvailability = false;
