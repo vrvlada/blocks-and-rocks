@@ -10,11 +10,19 @@
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#0c0e14">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🧱</text></svg>">
-<!-- Firebase SDK -->
-<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
+<!-- Firebase SDK (SRI-pinned: fajlovi su verzionisani i immutable) -->
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"
+        integrity="sha384-AQ3POAMqIhwS81FrUH95ekxqBZHeP5tG2JfEL3+7GuTtfRLWnrRh32UxwzM+//A9"
+        crossorigin="anonymous"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"
+        integrity="sha384-TnlRYaR4JYz/lpaGuaiU61PjNberSA44vjLjtF+oRC/IkohkJqnWxw5EmDSOt1vA1"
+        crossorigin="anonymous"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"
+        integrity="sha384-qn4Jh88HhJA8dplNQyGjOh9OGI4izVhhrfj/qIFgaKcdgOE06pXqIKGlsCILZcLAC"
+        crossorigin="anonymous"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"
+        integrity="sha384-E3vxFxXu8FhW5kvqdQJ5Yf8ugrV7iCJP8jgnItRH2Rk8Q08cJzJGTi/oMC3FEp3j"
+        crossorigin="anonymous"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -298,6 +306,7 @@
 
 <canvas id="confettiCanvas"></canvas>
 
+  <script defer src="i18n.js"></script>
   <script defer src="gameCore.js"></script>
   <script defer src="app.js"></script>
 </body>
