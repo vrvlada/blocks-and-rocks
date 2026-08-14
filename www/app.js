@@ -1064,9 +1064,14 @@
     setText('lbLoadMoreBtn', t.lbLoadMoreBtn);
 
     if (typeof updateGoogleLinkStatus === 'function') updateGoogleLinkStatus();
-    if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
-    if (typeof renderMatchHistory === 'function') renderMatchHistory();
-    if (typeof renderCareerStats === 'function') renderCareerStats();
+    // Ove tri funkcije čitaju `let` stanje deklarisano KASNIJE u fajlu —
+    // pozvane pri startu (pre kraja IIFE) bacaju TDZ ReferenceError i ubiju init.
+    // Odloženo izvršavanje garantuje da je ceo fajl već evaluiran.
+    setTimeout(() => {
+      if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
+      if (typeof renderMatchHistory === 'function') renderMatchHistory();
+      if (typeof renderCareerStats === 'function') renderCareerStats();
+    }, 0);
   }
 
   /* ═══════════════════════════════════════════════
