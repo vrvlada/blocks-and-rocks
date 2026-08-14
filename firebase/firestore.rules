@@ -1,0 +1,90 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Scores collection — leaderboard data
+    match /scores/{docId} {
+
+      // Anyone can read scores (for leaderboard display)
+      allow read: if true;
+
+      // Only authenticated users can create their own score document
+      // Document ID must match their auth UID
+      allow create: if request.auth != null
+        && docId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.username is string
+        && request.resource.data.username.size() >= 3
+        && request.resource.data.username.size() <= 12
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.countryCode is string
+        && request.resource.data.countryCode.size() == 2;
+
+      // Users can only update their own document, and only if the new score is higher
+      allow update: if request.auth != null
+        && docId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.score > resource.data.score
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.username is string
+        && request.resource.data.username.size() >= 3
+        && request.resource.data.username.size() <= 12
+        && request.resource.data.countryCode is string
+        && request.resource.data.countryCode.size() == 2;
+
+      // No deletes allowed
+      allow delete: if false;
+    }
+
+    // Leaderboard collection — multi-score: svaka partija = jedan dokument
+    match /leaderboard/{docId} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.userId is string
+        && request.resource.data.username is string
+        && request.resource.data.username.size() >= 3
+        && request.resource.data.username.size() <= 12
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 1000000
+        && request.resource.data.countryCode is string
+        && request.resource.data.countryCode.size() == 2
+        // Timestamp mora biti serverski — sprečava lažiranje vremena (tie-break sortiranje)
+        && request.resource.data.createdAt == request.time;
+
+      // No editing (each game is immutable)
+      allow update: if false;
+
+      // Clients may delete their own entries (used to cap to top-3 per user)
+      allow delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // Unique Usernames Registry — document ID is lowercase username
+    match /usernames/{usernameLower} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.originalName is string
+        && request.resource.data.originalName.size() >= 3
+        && request.resource.data.originalName.size() <= 12;
+      allow update: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && (resource == null || resource.data.uid == request.auth.uid);
+      allow delete: if request.auth != null
+        && (resource == null || resource.data.uid == request.auth.uid);
+    }
+
+    // User Profiles — document ID is auth UID
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.auth.uid == userId;
+    }
+  }
+}

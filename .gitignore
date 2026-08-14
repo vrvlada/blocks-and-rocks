@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build output
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+android/local.properties
+
+# Firebase / tajni ključevi — NIKAKO ne komitovati!
+serviceAccount*.json
+*-service-account*.json
+firebase-debug.log
+firestore-debug.log
+
+# OS / editor otpad
+.DS_Store
+Thumbs.db
+*.log
