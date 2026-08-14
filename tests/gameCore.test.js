@@ -186,3 +186,68 @@ test('calculatePowerupRewards boundary: threshold crossed by placement points co
   assert.deepEqual(G.calculatePowerupRewards(999, 1002), { hammersEarned: 1, rerollsEarned: 0 });
   assert.deepEqual(G.calculatePowerupRewards(1002, 1150), { hammersEarned: 0, rerollsEarned: 0 });
 });
+
+test('BADGES definition includes Destroyer series and thematic badges', () => {
+  assert.ok(Array.isArray(G.BADGES));
+  assert.ok(G.BADGES.length >= 8);
+  const ids = G.BADGES.map(b => b.id);
+  assert.ok(ids.includes('destroyer_10k'));
+  assert.ok(ids.includes('destroyer_50k'));
+  assert.ok(ids.includes('destroyer_100k'));
+  assert.ok(ids.includes('destroyer_250k'));
+  assert.ok(ids.includes('rock_crusher'));
+  assert.ok(ids.includes('bomb_defuser'));
+  assert.ok(ids.includes('combo_master'));
+  assert.ok(ids.includes('line_master'));
+});
+
+test('checkNewBadges unlocks Destroyer badges based on score and personal best', () => {
+  const emptyUnlocked = {};
+  
+  // Score 4,500 -> no unlock
+  assert.equal(G.checkNewBadges(emptyUnlocked, {}, 4500, 4500).length, 0);
+
+  // Score 10,000 -> unlocks 10k Destroyer
+  const un10k = G.checkNewBadges(emptyUnlocked, {}, 10000, 8000);
+  assert.equal(un10k.length, 1);
+  assert.equal(un10k[0].id, 'destroyer_10k');
+
+  // Once 10k is marked unlocked, score 25,000 does not re-unlock 10k
+  const with10k = { destroyer_10k: Date.now() };
+  assert.equal(G.checkNewBadges(with10k, {}, 25000, 25000).length, 0);
+
+  // Score 50,000 -> unlocks 50k Destroyer
+  const un50k = G.checkNewBadges(with10k, {}, 50000, 50000);
+  assert.equal(un50k.length, 1);
+  assert.equal(un50k[0].id, 'destroyer_50k');
+
+  // Score 100,000 -> unlocks 100k Destroyer
+  const with50k = { ...with10k, destroyer_50k: Date.now() };
+  const un100k = G.checkNewBadges(with50k, {}, 100000, 100000);
+  assert.equal(un100k.length, 1);
+  assert.equal(un100k[0].id, 'destroyer_100k');
+});
+
+test('checkNewBadges unlocks thematic stats badges', () => {
+  const empty = {};
+  const stats = { rocksCrushed: 25, bombsDefused: 15, maxCombo: 5, linesCleared: 200 };
+  const unlocked = G.checkNewBadges(empty, stats, 500, 500);
+  const ids = unlocked.map(b => b.id);
+  assert.ok(ids.includes('rock_crusher'));
+  assert.ok(ids.includes('bomb_defuser'));
+  assert.ok(ids.includes('combo_master'));
+  assert.ok(ids.includes('line_master'));
+});
+
+test('badge getProgress computes exact progress and capped percentage', () => {
+  const b10k = G.BADGES.find(b => b.id === 'destroyer_10k');
+  assert.deepEqual(b10k.getProgress({}, 5000, 0), { current: 5000, target: 10000, pct: 50 });
+  assert.deepEqual(b10k.getProgress({}, 15000, 0), { current: 10000, target: 10000, pct: 100 });
+});
+
+test('PULSE_BONUS constants are defined with correct 2-3min intervals, 10s duration and 100 points', () => {
+  assert.equal(G.PULSE_BONUS_POINTS, 100);
+  assert.equal(G.PULSE_BONUS_DURATION_SEC, 10);
+  assert.equal(G.PULSE_BONUS_MIN_INTERVAL_MS, 120000); // 2 minutes
+  assert.equal(G.PULSE_BONUS_MAX_INTERVAL_MS, 180000); // 3 minutes
+});

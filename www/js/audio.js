@@ -108,6 +108,17 @@ export function sfxHammer(){
   playTone(90, 0.22, 'triangle', 0.18);
   haptic('heavy');
 }
+export function sfxRockCrack(){
+  playTone(210, 0.12, 'sawtooth', 0.18);
+  setTimeout(() => playTone(140, 0.15, 'triangle', 0.16), 35);
+  haptic('heavy');
+}
+export function sfxRockBreak(){
+  playTone(130, 0.22, 'sawtooth', 0.22);
+  playTone(85, 0.28, 'triangle', 0.20);
+  setTimeout(() => playTone(60, 0.35, 'sine', 0.25), 50);
+  haptic('heavy');
+}
 export function sfxReroll(){
   playTone(440, 0.07, 'sine', 0.1);
   setTimeout(()=> playTone(554, 0.08, 'sine', 0.1), 50);
@@ -126,6 +137,29 @@ export function sfxNewBest(){
       playTone(freq, 0.18 + i * 0.04, 'sine', 0.14);
       if (i === notes.length - 1) playTone(freq, 0.35, 'triangle', 0.12);
     }, i * 90);
+  });
+  haptic('success');
+}
+export function sfxBadgeUnlock(){
+  const notes = [587.33, 739.99, 880.00, 1174.66]; // D5, F#5, A5, D6 heroic fanfare
+  notes.forEach((freq, i) => {
+    setTimeout(() => {
+      playTone(freq, 0.2 + i * 0.04, 'triangle', 0.16);
+      if (i === notes.length - 1) {
+        playTone(freq * 0.5, 0.4, 'sine', 0.18);
+        playTone(freq, 0.45, 'sawtooth', 0.08);
+      }
+    }, i * 85);
+  });
+  haptic('success');
+}
+export function sfxBonusGem(){
+  const notes = [880.00, 1108.73, 1318.51, 1760.00]; // A5, C#6, E6, A6 sparkle chime
+  notes.forEach((freq, i) => {
+    setTimeout(() => {
+      playTone(freq, 0.12 + i * 0.03, 'sine', 0.18);
+      playTone(freq * 1.5, 0.08, 'triangle', 0.10);
+    }, i * 65);
   });
   haptic('success');
 }

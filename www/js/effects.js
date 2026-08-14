@@ -171,39 +171,46 @@ export function spawnCrackParticles(cellsToClear){
   const padding = 8, gap = 4;
   const cellW = (rect.width - padding*2 - gap*(SIZE-1)) / SIZE;
   const total = cellsToClear.length || 1;
-  const count = total > 12 ? 2 : (total > 6 ? 3 : D.CONFIG.CRACK_PARTICLE_COUNT);
+  const count = total > 12 ? 3 : (total > 6 ? 5 : (D.CONFIG.CRACK_PARTICLE_COUNT || 6));
 
   const existing = document.querySelectorAll('.particle');
-  if (existing.length > 36) {
-    for (let k = 0; k < existing.length - 20; k++) existing[k].remove();
+  if (existing.length > 48) {
+    for (let k = 0; k < existing.length - 24; k++) existing[k].remove();
   }
+
+  const rockColors = ['#1e212b', '#3d4454', '#5a6378', '#8690a8', '#d0d7e8', '#fbbf24', '#f59e0b'];
 
   cellsToClear.forEach(key=>{
     const [r,c] = key.split('_').map(Number);
     const cx = rect.left + padding + c*(cellW+gap) + cellW/2;
     const cy = rect.top + padding + r*(cellW+gap) + cellW/2;
 
-    const grays = ['#8b90a3','#6b7185','#a9adbd'];
-    for(let i=0;i<count;i++){
+    for(let i=0; i<count; i++){
       const p = document.createElement('div');
       p.className = 'particle';
-      p.style.width = '4px'; p.style.height = '4px';
-      p.style.background = grays[i % grays.length];
-      p.style.left = cx+'px';
-      p.style.top = cy+'px';
+      const szW = 3 + Math.floor(Math.random() * 5);
+      const szH = 2 + Math.floor(Math.random() * 5);
+      p.style.width = szW + 'px';
+      p.style.height = szH + 'px';
+      p.style.background = rockColors[Math.floor(Math.random() * rockColors.length)];
+      p.style.borderRadius = `${1 + Math.random()*3}px ${2 + Math.random()*4}px ${1 + Math.random()*2}px ${2 + Math.random()*3}px`;
+      p.style.boxShadow = '0 2px 4px rgba(0,0,0,0.6)';
+      p.style.left = (cx + (Math.random() - 0.5) * 12) + 'px';
+      p.style.top = (cy + (Math.random() - 0.5) * 12) + 'px';
       document.body.appendChild(p);
 
-      const angle = (Math.PI*2*i/count) + Math.random()*0.6;
-      const dist = 12 + Math.random()*16;
-      const dx = Math.cos(angle)*dist;
-      const dy = Math.sin(angle)*dist;
+      const angle = (Math.PI * 2 * i / count) + (Math.random() - 0.5) * 0.8;
+      const dist = 16 + Math.random() * 26;
+      const dx = Math.cos(angle) * dist;
+      const dy = Math.sin(angle) * dist + 10; // slight gravitational drop
+      const rot = (Math.random() * 720 - 360) | 0;
 
       p.animate([
-        { transform:'translate3d(0,0,0) scale(1)', opacity:1 },
-        { transform:`translate3d(${dx}px, ${dy}px, 0) scale(0.4)`, opacity:0 }
-      ], { duration: 260 + Math.random()*100, easing:'cubic-bezier(.2,.7,.3,1)' });
+        { transform: 'translate3d(0,0,0) scale(1) rotate(0deg)', opacity: 1 },
+        { transform: `translate3d(${dx}px, ${dy}px, 0) scale(${0.2 + Math.random()*0.4}) rotate(${rot}deg)`, opacity: 0 }
+      ], { duration: 320 + Math.random() * 160, easing: 'cubic-bezier(.17,.67,.3,1)' });
 
-      setTimeout(()=>p.remove(), 400);
+      setTimeout(() => p.remove(), 490);
     }
   });
 }

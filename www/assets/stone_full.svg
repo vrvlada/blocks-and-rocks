@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <!-- Rock base gradient (rugged granite / dark slate) -->
+    <linearGradient id="rockBase" x1="15%" y1="10%" x2="85%" y2="90%">
+      <stop offset="0%" stop-color="#7a8296"/>
+      <stop offset="25%" stop-color="#585f73"/>
+      <stop offset="55%" stop-color="#3c4252"/>
+      <stop offset="85%" stop-color="#2a2e3a"/>
+      <stop offset="100%" stop-color="#1c1e27"/>
+    </linearGradient>
+
+    <!-- Top-left chiseled light rim -->
+    <linearGradient id="chiseledHighlight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d4daf0" stop-opacity="0.95"/>
+      <stop offset="40%" stop-color="#9ca7c4" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#3c4254" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Bottom-right deep stone shadow -->
+    <linearGradient id="chiseledShadow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="60%" stop-color="#14161f" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#090a0f" stop-opacity="0.95"/>
+    </linearGradient>
+
+    <!-- Rock facet polygon gradients -->
+    <linearGradient id="facet1" x1="0%" y1="0%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#8e96ac" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#4a5061" stop-opacity="0.1"/>
+    </linearGradient>
+    <linearGradient id="facet2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#181b24" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#2d3240" stop-opacity="0.1"/>
+    </linearGradient>
+    <linearGradient id="facet3" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#9aa4be" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#3a3f4f" stop-opacity="0.2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Base Rock Shape with Rugged Chiseled Edges -->
+  <rect x="3" y="3" width="122" height="122" rx="18" fill="url(#rockBase)"/>
+
+  <!-- Chiseled 3D Bevel Facets (Corner Chamfers) -->
+  <!-- Top Highlight Chamfer -->
+  <path d="M 3 20 L 20 3 L 108 3 L 94 17 L 33 17 L 17 33 L 3 20 Z" fill="url(#chiseledHighlight)"/>
+  <!-- Left Highlight Edge -->
+  <path d="M 3 20 L 17 33 L 17 95 L 3 108 Z" fill="#7d87a1" fill-opacity="0.45"/>
+  <!-- Bottom Shadow Chamfer -->
+  <path d="M 3 108 L 17 95 L 95 95 L 109 109 L 125 108 L 108 125 L 20 125 L 3 108 Z" fill="url(#chiseledShadow)"/>
+  <!-- Right Shadow Edge -->
+  <path d="M 125 20 L 111 33 L 111 95 L 125 108 Z" fill="#0d0e14" fill-opacity="0.75"/>
+
+  <!-- Interior Rocky Facets (Chiseled Stone Planes) -->
+  <polygon points="17,33 55,20 48,62 17,50" fill="url(#facet1)"/>
+  <polygon points="55,20 111,33 88,58 48,62" fill="url(#facet3)"/>
+  <polygon points="48,62 88,58 111,95 72,108" fill="url(#facet2)"/>
+  <polygon points="17,50 48,62 72,108 17,95" fill="#252936" fill-opacity="0.6"/>
+  <polygon points="48,62 68,48 88,58 75,82" fill="#626b80" fill-opacity="0.45"/>
+
+  <!-- Natural Rock Crevice / Vein Lines -->
+  <path d="M 28 24 L 42 38 L 38 56 L 52 70 L 46 88 L 60 104" stroke="#161822" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.85"/>
+  <path d="M 29 25 L 43 39 L 39 57 L 53 71 L 47 89 L 61 105" stroke="#9ba6c2" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.6"/>
+
+  <path d="M 72 32 L 86 44 L 80 62 L 98 74" stroke="#161822" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.75"/>
+  <path d="M 73 33 L 87 45 L 81 63 L 99 75" stroke="#9ba6c2" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/>
+
+  <!-- Mineral Quartz Crystals / Specks (Highlights) -->
+  <circle cx="34" cy="42" r="1.8" fill="#ffffff" opacity="0.85"/>
+  <circle cx="82" cy="28" r="1.4" fill="#ffffff" opacity="0.75"/>
+  <circle cx="94" cy="68" r="2.0" fill="#e2e8f0" opacity="0.8"/>
+  <circle cx="58" cy="88" r="1.5" fill="#ffffff" opacity="0.7"/>
+  <circle cx="24" cy="78" r="1.6" fill="#cbd5e1" opacity="0.75"/>
+  <circle cx="76" cy="52" r="2.2" fill="#ffffff" opacity="0.9"/>
+  <circle cx="44" cy="30" r="1.2" fill="#e2e8f0" opacity="0.7"/>
+  <circle cx="102" cy="42" r="1.5" fill="#ffffff" opacity="0.8"/>
+
+  <!-- Top Rock Specular Light Crest -->
+  <path d="M 22 10 Q 64 6 106 10" stroke="#f1f5f9" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.8"/>
+  <path d="M 10 22 Q 6 64 10 106" stroke="#d4daf0" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.55"/>
+</svg>

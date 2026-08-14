@@ -18,5 +18,6 @@ firestore-debug.log
 .DS_Store
 Thumbs.db
 *.log
+Gemini_Generated_Image_*.jpg
 .idea/
 .vscode/

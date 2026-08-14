@@ -177,10 +177,129 @@
     return { hammersEarned, rerollsEarned };
   }
 
+  /**
+   * Definicije dostignuća i bedževa (Destroyer serija + tematski bedževi).
+   */
+  const BADGES = [
+    {
+      id: 'destroyer_10k',
+      tier: 'bronze',
+      icon: '🥉',
+      target: 10000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 10000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(10000, val), target: 10000, pct: Math.min(100, Math.round((val / 10000) * 100)) };
+      }
+    },
+    {
+      id: 'destroyer_50k',
+      tier: 'silver',
+      icon: '🥈',
+      target: 50000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 50000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(50000, val), target: 50000, pct: Math.min(100, Math.round((val / 50000) * 100)) };
+      }
+    },
+    {
+      id: 'destroyer_100k',
+      tier: 'gold',
+      icon: '🥇',
+      target: 100000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 100000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(100000, val), target: 100000, pct: Math.min(100, Math.round((val / 100000) * 100)) };
+      }
+    },
+    {
+      id: 'destroyer_250k',
+      tier: 'diamond',
+      icon: '💎',
+      target: 250000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 250000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(250000, val), target: 250000, pct: Math.min(100, Math.round((val / 250000) * 100)) };
+      }
+    },
+    {
+      id: 'rock_crusher',
+      tier: 'bronze',
+      icon: '🪨',
+      target: 25,
+      check: (stats) => ((stats && stats.rocksCrushed) || 0) >= 25,
+      getProgress: (stats) => {
+        const val = (stats && stats.rocksCrushed) || 0;
+        return { current: Math.min(25, val), target: 25, pct: Math.min(100, Math.round((val / 25) * 100)) };
+      }
+    },
+    {
+      id: 'bomb_defuser',
+      tier: 'silver',
+      icon: '💣',
+      target: 15,
+      check: (stats) => ((stats && stats.bombsDefused) || 0) >= 15,
+      getProgress: (stats) => {
+        const val = (stats && stats.bombsDefused) || 0;
+        return { current: Math.min(15, val), target: 15, pct: Math.min(100, Math.round((val / 15) * 100)) };
+      }
+    },
+    {
+      id: 'combo_master',
+      tier: 'gold',
+      icon: '🔥',
+      target: 5,
+      check: (stats) => ((stats && stats.maxCombo) || 1) >= 5,
+      getProgress: (stats) => {
+        const val = (stats && stats.maxCombo) || 1;
+        return { current: Math.min(5, val), target: 5, pct: Math.min(100, Math.round((val / 5) * 100)) };
+      }
+    },
+    {
+      id: 'line_master',
+      tier: 'gold',
+      icon: '✨',
+      target: 200,
+      check: (stats) => ((stats && stats.linesCleared) || 0) >= 200,
+      getProgress: (stats) => {
+        const val = (stats && stats.linesCleared) || 0;
+        return { current: Math.min(200, val), target: 200, pct: Math.min(100, Math.round((val / 200) * 100)) };
+      }
+    }
+  ];
+
+  /**
+   * Proverava koja su nova dostignuća otključana na osnovu trenutnog skora i statistike.
+   * Vraća niz novo-otključanih bedževa.
+   */
+  function checkNewBadges(unlockedMap, stats, currentScore, personalBest) {
+    const newlyUnlocked = [];
+    const unlocked = unlockedMap || {};
+    for (const badge of BADGES) {
+      if (!unlocked[badge.id] && badge.check(stats, currentScore, personalBest)) {
+        newlyUnlocked.push(badge);
+      }
+    }
+    return newlyUnlocked;
+  }
+
+  const PULSE_BONUS_POINTS = 100;
+  const PULSE_BONUS_DURATION_SEC = 10;
+  const PULSE_BONUS_MIN_INTERVAL_MS = 120000; // 2 min
+  const PULSE_BONUS_MAX_INTERVAL_MS = 180000; // 3 min
+
   return {
     SIZE,
     COLORS,
     SHAPES,
+    BADGES,
+    PULSE_BONUS_POINTS,
+    PULSE_BONUS_DURATION_SEC,
+    PULSE_BONUS_MIN_INTERVAL_MS,
+    PULSE_BONUS_MAX_INTERVAL_MS,
     makeGrid,
     shapeSize,
     canPlaceOn,
@@ -194,5 +313,6 @@
     validateUsernameFormat,
     calculateComboScore,
     calculatePowerupRewards,
+    checkNewBadges,
   };
 });

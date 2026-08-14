@@ -2,11 +2,12 @@
 import { TRANSLATIONS } from './i18n.js';
 import { escapeHtml } from './js/utils.js';
 import { initAudio, haptic, setMuted, toggleMute, isMuted, getHapticMode, setHapticMode,
-         sfxPlace, sfxClear, sfxBomb, sfxHammer, sfxReroll, sfxRotate, sfxNewBest,
-         playComboAudio, sfxGameOver } from './js/audio.js';
+         sfxPlace, sfxClear, sfxBomb, sfxHammer, sfxRockCrack, sfxRockBreak, sfxReroll, sfxRotate, sfxNewBest,
+         playComboAudio, sfxGameOver, sfxBonusGem } from './js/audio.js';
 import { initEffects, triggerScreenShake, triggerConfetti, showScoreFloat, spawnParticles,
          spawnCrackParticles, spawnShockwave, spawnSpark } from './js/effects.js';
 import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderboard.js';
+import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } from './js/achievements.js';
 
 (function(){
   /* ═══════════════════════════════════════════════
@@ -94,17 +95,19 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
         });
       });
 
-      fb_auth.onAuthStateChanged(async user => {
+      fb_auth.onAuthStateChanged(user => {
         if(user) {
           fb_userId = user.uid;
           localStorage.setItem('blocksrocks_userId', fb_userId);
           firebaseReady = true;
           console.log('[B&R] Firebase Auth OK:', fb_userId);
           if(typeof updateGoogleLinkStatus === 'function') updateGoogleLinkStatus();
-          if(typeof initUserIdentity === 'function') await initUserIdentity();
-          if(typeof syncOfflineScores === 'function') await syncOfflineScores();
-          if(typeof updateBottomRecords === 'function') updateBottomRecords(true);
-          if(typeof migrateLegacyScore === 'function') migrateLegacyScore();
+          setTimeout(async () => {
+            if(typeof initUserIdentity === 'function') await initUserIdentity();
+            if(typeof syncOfflineScores === 'function') await syncOfflineScores();
+            if(typeof updateBottomRecords === 'function') updateBottomRecords(true);
+            if(typeof migrateLegacyScore === 'function') migrateLegacyScore();
+          }, 350);
         }
       });
 
@@ -421,6 +424,7 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     setText('btnShareScore', t.btnShareScore || '📤 PODELI REZULTAT');
     setText('i18n_historyLabel', t.historyLabel || '📜 POSLEDNJE PARTIJE');
     setText('i18n_statsLabel', t.statsLabel || '📊 STATISTIKA KARIJERE');
+    setText('i18n_badgesLabel', t.badgesLabel || '🏅 DOSTIGNUĆA & BEDŽEVI');
     setText('i18n_statGames', t.statGames || 'Partija');
     setText('i18n_statLines', t.statLines || 'Linija');
     setText('i18n_statCombo', t.statCombo || 'Maks Kombo');
@@ -481,7 +485,7 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
   function updateHapticSetting(val) {
     setHapticMode(val); // stanje + localStorage: js/audio.js
     const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    const container = document.getElementById('hapticOptions') || document.getElementById('hapticGroup');
+    const container = document.getElementById('hapticGroup');
     if (container) {
       container.querySelectorAll('.haptic-btn, .haptic-opt').forEach(btn => {
         const mode = btn.getAttribute('data-haptic') || btn.getAttribute('data-val');
@@ -505,7 +509,7 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
   function updateParticleSetting(enabled) {
     particleTrailEnabled = !!enabled;
     localStorage.setItem('blocksrocks_particles', particleTrailEnabled ? '1' : '0');
-    const toggle = document.getElementById('particleToggle') || document.getElementById('particleTrailToggle');
+    const toggle = document.getElementById('particleTrailToggle');
     if (toggle) toggle.checked = particleTrailEnabled;
   }
 
@@ -541,7 +545,7 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
   }
 
   // Haptic buttons
-  const hapticContainer = document.getElementById('hapticOptions') || document.getElementById('hapticGroup');
+  const hapticContainer = document.getElementById('hapticGroup');
   if (hapticContainer) {
     hapticContainer.addEventListener('click', (e) => {
       const btn = e.target.closest('.haptic-btn, .haptic-opt');
@@ -562,8 +566,8 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     });
   }
 
-  // Particle toggle
-  const pToggle = document.getElementById('particleToggle') || document.getElementById('particleTrailToggle');
+  // Particle trail toggle switch
+  const pToggle = document.getElementById('particleTrailToggle');
   if (pToggle) {
     pToggle.addEventListener('change', (e) => {
       updateParticleSetting(e.target.checked);
@@ -578,12 +582,13 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     const btnLinkGoogle = document.getElementById('btnLinkGoogle');
     const googleStatus = document.getElementById('googleStatus');
     if (!btnLinkGoogle || !googleStatus) return;
-    if (!fb_auth || !fb_auth.currentUser) return;
-    const isLinked = fb_auth.currentUser.providerData.some(p => p.providerId === 'google.com');
+    const isLinked = localStorage.getItem('blocksrocks_googleLinked') === '1' || (fb_auth && fb_auth.currentUser && fb_auth.currentUser.providerData.some(p => p.providerId === 'google.com'));
     const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
     if (isLinked) {
       btnLinkGoogle.style.display = 'none';
+      const email = localStorage.getItem('blocksrocks_googleEmail') || '';
       googleStatus.textContent = t.googleLinked || '✅ Povezano sa Google nalogom';
+      if (email) googleStatus.title = email;
       googleStatus.style.color = 'var(--accent)';
     } else {
       btnLinkGoogle.style.display = 'flex';
@@ -592,81 +597,139 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     }
   }
 
+  async function performGoogleSignIn() {
+    const googleStatus = document.getElementById('googleStatus');
+    const btnLinkGoogle = document.getElementById('btnLinkGoogle');
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    if (btnLinkGoogle) {
+      btnLinkGoogle.disabled = true;
+      btnLinkGoogle.style.opacity = '0.6';
+    }
+    if (googleStatus) {
+      googleStatus.textContent = t.googleConnecting || 'Povezivanje...';
+      googleStatus.style.color = 'var(--dim)';
+    }
+
+    try {
+      // 1. Try Native GoogleAuthPlugin on Android
+      if (window.Capacitor && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable('GoogleAuthPlugin')) {
+        console.log('[B&R] Launching Native Google Sign-In...');
+        try {
+          const res = await window.Capacitor.Plugins.GoogleAuthPlugin.signIn();
+          if (res && res.signedIn && res.userId) {
+            console.log('[B&R] Native Google Auth success:', res.email);
+            await handleGoogleSignInSuccess({
+              uid: 'google_' + res.userId,
+              email: res.email,
+              displayName: res.displayName,
+              photoUrl: res.photoUrl,
+              idToken: res.idToken
+            });
+            updateGoogleLinkStatus();
+            return true;
+          }
+        } catch (nativeErr) {
+          if (nativeErr === 'cancelled' || (nativeErr && nativeErr.message && nativeErr.message.includes('cancelled'))) {
+            console.log('[B&R] Google Sign-In cancelled by user');
+            if (googleStatus) googleStatus.textContent = '';
+            return false;
+          }
+          console.warn('[B&R] Native Google Auth issue, trying web fallback:', nativeErr);
+        }
+      }
+
+      // 2. Web fallback via Firebase Auth
+      if (fb_auth) {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        if (fb_auth.currentUser) {
+          try {
+            const result = await fb_auth.currentUser.linkWithPopup(provider);
+            if (result && result.user) await handleGoogleSignInSuccess(result.user);
+          } catch (popupErr) {
+            if (popupErr.code === 'auth/credential-already-in-use' && popupErr.credential) {
+              const res = await fb_auth.signInWithCredential(popupErr.credential);
+              if (res && res.user) await handleGoogleSignInSuccess(res.user);
+            } else {
+              await fb_auth.currentUser.linkWithRedirect(provider);
+            }
+          }
+        } else {
+          const res = await fb_auth.signInWithPopup(provider);
+          if (res && res.user) await handleGoogleSignInSuccess(res.user);
+        }
+        updateGoogleLinkStatus();
+        return true;
+      }
+    } catch (err) {
+      console.error('[B&R] Google Sign-In error:', err);
+      if (googleStatus) {
+        if (err.code === 'auth/credential-already-in-use') {
+          googleStatus.textContent = t.googleAlreadyLinked || '⚠️ Google nalog je već povezan';
+        } else {
+          googleStatus.textContent = (t.googleError || '❌ Greška pri povezivanju');
+        }
+        googleStatus.style.color = 'var(--danger)';
+      }
+    } finally {
+      if (btnLinkGoogle) {
+        btnLinkGoogle.disabled = false;
+        btnLinkGoogle.style.opacity = '1';
+      }
+    }
+    return false;
+  }
+
   const btnLinkGoogleBtn = document.getElementById('btnLinkGoogle');
   if (btnLinkGoogleBtn) {
-    btnLinkGoogleBtn.addEventListener('click', async () => {
-      const googleStatus = document.getElementById('googleStatus');
-      if (!fb_auth || !fb_auth.currentUser) return;
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-      const provider = new firebase.auth.GoogleAuthProvider();
-      try {
-        btnLinkGoogleBtn.disabled = true;
-        btnLinkGoogleBtn.style.opacity = '0.5';
-        if (googleStatus) {
-          googleStatus.textContent = t.googleConnecting || 'Povezivanje...';
-          googleStatus.style.color = 'var(--dim)';
-        }
-
-        try {
-          const result = await fb_auth.currentUser.linkWithPopup(provider);
-          console.log('[B&R] Successfully linked with Google (popup)', result.user);
-          if (result && result.user) {
-            await handleGoogleSignInSuccess(result.user);
-          }
-          updateGoogleLinkStatus();
-        } catch (popupErr) {
-          console.warn('[B&R] Popup link failed, switching to redirect:', popupErr.code, popupErr.message);
-          if (popupErr.code === 'auth/credential-already-in-use' && popupErr.credential) {
-            const res = await fb_auth.signInWithCredential(popupErr.credential);
-            console.log('[B&R] Signed into existing Google account:', res.user.uid);
-            if (res && res.user) {
-              await handleGoogleSignInSuccess(res.user);
-            }
-            updateGoogleLinkStatus();
-          } else {
-            // Fallback to redirect for native mobile WebView
-            await fb_auth.currentUser.linkWithRedirect(provider);
-          }
-        }
-      } catch (error) {
-        console.error('[B&R] Google link error', error);
-        if (googleStatus) {
-          if (error.code === 'auth/credential-already-in-use') {
-            googleStatus.textContent = t.googleAlreadyLinked || '⚠️ Google nalog je već povezan';
-          } else {
-            googleStatus.textContent = (t.googleError || '❌ Greška') + ' (' + (error.code || 'problem') + ')';
-          }
-          googleStatus.style.color = 'var(--danger)';
-        }
-      } finally {
-        btnLinkGoogleBtn.disabled = false;
-        btnLinkGoogleBtn.style.opacity = '1';
-      }
-    });
+    btnLinkGoogleBtn.addEventListener('click', performGoogleSignIn);
   }
 
   async function handleGoogleSignInSuccess(googleUser) {
     if (!googleUser) return;
-    fb_userId = googleUser.uid;
+    const gUid = googleUser.uid;
+    fb_userId = gUid;
     localStorage.setItem('blocksrocks_userId', fb_userId);
-    
-    // Check if this Google account already has a registered username
+    localStorage.setItem('blocksrocks_googleLinked', '1');
+    localStorage.setItem('blocksrocks_googleEmail', googleUser.email || '');
+
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+
+    // Check if this Google account already has a registered profile in Firestore
     if (fb_db) {
       try {
-        const userDoc = await fb_db.collection('users').doc(fb_userId).get();
-        if (userDoc.exists && userDoc.data().username) {
-          const cloudName = userDoc.data().username;
-          saveUsername(cloudName);
-          username = cloudName;
-          if (usernameInput) usernameInput.value = cloudName;
-          if (isOnboarding) {
-            isOnboarding = false;
-            usernameModal.classList.remove('is-onboarding');
-            usernameModal.style.display = 'none';
+        const userDoc = await fb_db.collection('users').doc(gUid).get();
+        if (userDoc.exists && userDoc.data()) {
+          const udata = userDoc.data();
+          if (udata.username) {
+            const cloudName = udata.username;
+            saveUsername(cloudName);
+            username = cloudName;
+            if (usernameInput) usernameInput.value = cloudName;
+
+            if (udata.personalBest && Number(udata.personalBest) > personalBest) {
+              savePersonalBest(Number(udata.personalBest));
+              best = personalBest;
+              if (bestEl) bestEl.textContent = best;
+            }
+
+            if (isOnboarding) {
+              isOnboarding = false;
+              usernameModal.classList.remove('is-onboarding');
+              usernameModal.style.display = 'none';
+              setPaused(false);
+            }
+
+            showMsg((t.googleWelcomeBack || '✅ Dobrodošao nazad, ') + cloudName + '!', 3500);
+            haptic('success');
+            console.log('[B&R] Cloud profile restored for Google user:', cloudName);
+            if (typeof fetchMyTop3 === 'function') fetchMyTop3();
+            if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
+            return;
           }
-          console.log('[B&R] Google profile username restored:', cloudName);
-        } else if (username && username.length >= 3) {
-          // Sync current username to Google account profile
+        }
+
+        // New Google user: if existing nickname is valid, register it
+        if (username && username.length >= 3) {
           await registerAndSaveUsername(username);
         } else if (googleUser.displayName) {
           const cleanDisplay = googleUser.displayName.replace(/[^a-zA-Z0-9_\-\u00C0-\u024F\u0400-\u04FF]/g, '').substring(0,12);
@@ -965,6 +1028,27 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
   }
 
   async function initUserIdentity() {
+    // 1. Silent Google Account check in the background
+    if (window.Capacitor && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable('GoogleAuthPlugin')) {
+      try {
+        const silent = await window.Capacitor.Plugins.GoogleAuthPlugin.getSilentAccount();
+        if (silent && silent.signedIn && silent.userId) {
+          console.log('[B&R] Silent Google Account detected:', silent.email);
+          await handleGoogleSignInSuccess({
+            uid: 'google_' + silent.userId,
+            email: silent.email,
+            displayName: silent.displayName,
+            photoUrl: silent.photoUrl,
+            idToken: silent.idToken
+          });
+          if (username) return;
+        }
+      } catch (silentErr) {
+        console.warn('[B&R] Silent Google login notice:', silentErr);
+      }
+    }
+
+    // 2. Existing local username check & sync
     if (username && username.trim().length >= 3) {
       if (fb_db && firebaseReady && fb_userId) {
         try {
@@ -992,7 +1076,7 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
       return;
     }
 
-    // No local username: check Firestore users/{uid}
+    // 3. Check Firestore users/{uid} for previous anonymous session
     if (fb_db && firebaseReady && fb_userId) {
       try {
         const userRef = fb_db.collection('users').doc(fb_userId);
@@ -1017,8 +1101,20 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
       }
     }
 
-    // Still no username found -> show onboarding modal!
-    showUsernameModal(null, true);
+    // 4. Zero Friction: If still no nickname, generate a default guest name so user plays INSTANTLY!
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const prefix = t.guestPrefix || 'Igrač';
+    const guestNum = Math.floor(1000 + Math.random() * 9000);
+    const guestName = `${prefix}_${guestNum}`;
+    username = guestName;
+    localStorage.setItem('blocksrocks_username', guestName);
+    if (usernameInput) usernameInput.value = guestName;
+    console.log('[B&R] Assigned seamless guest nickname:', guestName);
+
+    // Register guest nickname in background without blocking
+    if (fb_db && firebaseReady) {
+      registerAndSaveUsername(guestName).catch(e => console.warn('[B&R] Guest auto-register notice:', e));
+    }
   }
 
   // Username Input Listeners
@@ -1643,6 +1739,13 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
         refillTray();
         clearGameState();
       }
+      if(pulseBonusState.intervalId) { clearInterval(pulseBonusState.intervalId); pulseBonusState.intervalId = null; }
+      if(pulseBonusState.nextSpawnTimeoutId) { clearTimeout(pulseBonusState.nextSpawnTimeoutId); pulseBonusState.nextSpawnTimeoutId = null; }
+      pulseBonusState.r = -1;
+      pulseBonusState.c = -1;
+      pulseBonusState.timer = 0;
+      scheduleNextPulseBonus();
+
       updatePowerupUI();
       track('game_start', { from_save: !!saved });
       render();
@@ -1749,6 +1852,7 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     score += piece.shape.length;
     showScoreFloat(score - prevScore);
     grantPowerupRewards(prevScore, score);
+    checkAndUnlockBadges(careerStats, score, best, currentLang);
     sfxPlace();
     render();
     placedIndices.forEach(idx => {
@@ -1761,6 +1865,130 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     if(bombPos) startBombCountdown(bombPos.r, bombPos.c);
     clearLines(onCleared);
     saveGameState();
+  }
+
+  /* ═══════════════════════════════════════════════
+   *  PULSE BONUS CUBE (Every 2-3 min, 10s duration, +100 bonus pts)
+   * ═══════════════════════════════════════════════ */
+  let pulseBonusState = {
+    r: -1,
+    c: -1,
+    timer: 0,
+    intervalId: null,
+    nextSpawnTimeoutId: null
+  };
+
+  function getRandomPulseInterval(){
+    const min = GameCore.PULSE_BONUS_MIN_INTERVAL_MS || 120000;
+    const max = GameCore.PULSE_BONUS_MAX_INTERVAL_MS || 180000;
+    return Math.floor(Math.random() * (max - min)) + min;
+  }
+
+  function scheduleNextPulseBonus(delayMs = getRandomPulseInterval()){
+    if(pulseBonusState.nextSpawnTimeoutId) {
+      clearTimeout(pulseBonusState.nextSpawnTimeoutId);
+    }
+    pulseBonusState.nextSpawnTimeoutId = setTimeout(() => {
+      pulseBonusState.nextSpawnTimeoutId = null;
+      spawnPulseBonus();
+    }, delayMs);
+  }
+
+  function spawnPulseBonus(){
+    if(gameOver || paused || lineClearInProgress) {
+      scheduleNextPulseBonus(5000);
+      return;
+    }
+    if(pulseBonusState.r !== -1) return;
+
+    const candidates = [];
+    for(let r=0; r<SIZE; r++){
+      for(let c=0; c<SIZE; c++){
+        const d = grid && grid[r] ? grid[r][c] : null;
+        if(d && !d.bomb) {
+          candidates.push({r, c});
+        }
+      }
+    }
+    if(candidates.length === 0){
+      scheduleNextPulseBonus(5000);
+      return;
+    }
+    const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+    startPulseBonusAt(chosen.r, chosen.c);
+  }
+
+  function startPulseBonusAt(r, c){
+    const cellData = grid && grid[r] ? grid[r][c] : null;
+    if(!cellData) return;
+    cellData.isPulseBonus = true;
+    cellData.pulseTimer = GameCore.PULSE_BONUS_DURATION_SEC || 10;
+    pulseBonusState.r = r;
+    pulseBonusState.c = c;
+    pulseBonusState.timer = cellData.pulseTimer;
+
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    showMsg(t.msgPulseBonusSpawn || '✨ Zlatna kocka pulsira! Razbij je za +100!', 3000);
+    haptic('medium');
+    sfxBonusGem();
+    render();
+
+    if(pulseBonusState.intervalId) clearInterval(pulseBonusState.intervalId);
+    pulseBonusState.intervalId = setInterval(() => {
+      if(paused || gameOver) return;
+      if(pulseBonusState.r === -1) {
+        clearInterval(pulseBonusState.intervalId);
+        pulseBonusState.intervalId = null;
+        return;
+      }
+      pulseBonusState.timer -= 1;
+      const d = (grid && grid[pulseBonusState.r]) ? grid[pulseBonusState.r][pulseBonusState.c] : null;
+      if(d && d.isPulseBonus){
+        d.pulseTimer = pulseBonusState.timer;
+        if(pulseBonusState.timer <= 0){
+          endPulseBonus(false);
+        } else {
+          render();
+        }
+      } else {
+        endPulseBonus(false);
+      }
+    }, 1000);
+  }
+
+  function endPulseBonus(rewardClaimed = false){
+    if(pulseBonusState.intervalId){
+      clearInterval(pulseBonusState.intervalId);
+      pulseBonusState.intervalId = null;
+    }
+    if(pulseBonusState.r !== -1 && grid && grid[pulseBonusState.r]){
+      const d = grid[pulseBonusState.r][pulseBonusState.c];
+      if(d) {
+        delete d.isPulseBonus;
+        delete d.pulseTimer;
+      }
+    }
+    pulseBonusState.r = -1;
+    pulseBonusState.c = -1;
+    pulseBonusState.timer = 0;
+    render();
+    scheduleNextPulseBonus();
+  }
+
+  function checkAndCollectPulseBonus(r, c){
+    if(pulseBonusState.r === r && pulseBonusState.c === c){
+      const pts = GameCore.PULSE_BONUS_POINTS || 100;
+      score += pts;
+      showScoreFloat(pts);
+      sfxBonusGem();
+      triggerConfetti(25);
+      haptic('success');
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      showMsg(t.msgPulseBonusClaimed || '🌟 +100 BONUS OSVOJEN!', 2500);
+      endPulseBonus(true);
+      return true;
+    }
+    return false;
   }
 
   const bombTickers = new Map(); // key "r_c" -> {r,c}
@@ -1864,6 +2092,7 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     const stagger = CONFIG.BOMB_STAGGER;
 
     affectedSnapshot.forEach((pos,i)=>{
+      if(pos.willRemove) checkAndCollectPulseBonus(pos.r, pos.c);
       setTimeout(()=>{
         const data = grid[pos.r][pos.c];
         if(!data) return;
@@ -1883,8 +2112,9 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
           if(el){
             el.classList.remove('stone-full');
             el.classList.add('stone-cracked','cracking');
-            el.style.backgroundColor = data.color;
+            el.style.backgroundColor = '';
           }
+          sfxRockCrack();
           spawnCrackParticles([pos.r+'_'+pos.c]);
         }
       }, i*stagger);
@@ -1953,6 +2183,7 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     const stagger = CONFIG.LINE_CLEAR_STAGGER;
 
     cellsArr.forEach(({r,c,key,willRemove}, i)=>{
+      if(willRemove) checkAndCollectPulseBonus(r, c);
       setTimeout(()=>{
         const idx = r*SIZE+c;
         const el = boardEl.children[idx];
@@ -1972,8 +2203,9 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
           if(el){
             el.classList.remove('stone-full');
             el.classList.add('stone-cracked','cracking');
-            if(cellData) el.style.backgroundColor = cellData.color;
+            el.style.backgroundColor = '';
           }
+          sfxRockCrack();
           spawnCrackParticles([key]);
         }
       }, i*stagger);
@@ -1996,6 +2228,7 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     const bonus = GameCore.calculateComboScore(linesCleared, removedCount, crackedCount, comboStreak);
     score += bonus;
     showScoreFloat(bonus);
+    checkAndUnlockBadges(careerStats, score, best, currentLang);
 
     playComboAudio(comboStreak, linesCleared);
     updatePowerupUI();
@@ -2045,8 +2278,13 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
 
     if(cellData.hp > 1){
       cellData.hp -= 1;
+      sfxRockCrack();
     } else {
-      if(cellData.maxHp === 2) recordCareerStat('rocksCrushed', 1);
+      checkAndCollectPulseBonus(r, c);
+      if(cellData.maxHp === 2){
+        recordCareerStat('rocksCrushed', 1);
+        sfxRockBreak();
+      }
       if(cellData.bomb) recordCareerStat('bombsDefused', 1);
       grid[r][c] = null;
       if(cellData.bomb) bombTickers.delete(r+'_'+c);
@@ -2098,15 +2336,19 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
             if(data.maxHp === 2 && data.hp >= 2) cls += ' stone-full';
             else if(data.maxHp === 2 && data.hp === 1) cls += ' stone-cracked';
             if(data.bomb) cls += ' bomb-cell';
+            if(data.isPulseBonus) {
+              cls += ' pulse-bonus-cell';
+              if(data.pulseTimer <= 3) cls += ' urgent';
+            }
           }
           if (div.className !== cls) {
             div.className = cls;
           }
           if(data){
-            if(!(data.maxHp === 2 && data.hp >= 2)){
-              div.style.backgroundColor = data.color || '#5eead4';
-            } else {
+            if(data.maxHp === 2){
               div.style.backgroundColor = '';
+            } else {
+              div.style.backgroundColor = data.color || '#5eead4';
             }
             if(data.bomb){
               let label = div.querySelector('.bomb-label');
@@ -2120,10 +2362,25 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
               const label = div.querySelector('.bomb-label');
               if(label) label.remove();
             }
+
+            if(data.isPulseBonus){
+              let pbLabel = div.querySelector('.pulse-bonus-label');
+              if(!pbLabel){
+                pbLabel = document.createElement('div');
+                pbLabel.className = 'pulse-bonus-label';
+                div.appendChild(pbLabel);
+              }
+              pbLabel.innerHTML = '<span class="pb-sec">' + (data.pulseTimer || 10) + 's</span><span class="pb-pts">+100</span>';
+            } else {
+              const pbLabel = div.querySelector('.pulse-bonus-label');
+              if(pbLabel) pbLabel.remove();
+            }
           } else {
             div.style.backgroundColor = '';
             const label = div.querySelector('.bomb-label');
             if(label) label.remove();
+            const pbLabel = div.querySelector('.pulse-bonus-label');
+            if(pbLabel) pbLabel.remove();
           }
         }
       }
@@ -2359,8 +2616,9 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     const {rows, cols} = shapeSize(dragging.piece.shape);
     const cellW = (cachedBoardGeometry || getCellGeometry()).cellW;
     const raise = getGhostRaise(rows);
-    ghostEl.style.left = (x - cols*cellW/2) + 'px';
-    ghostEl.style.top = (y - rows*cellW/2 - raise) + 'px';
+    const gx = Math.round(x - cols*cellW/2);
+    const gy = Math.round(y - rows*cellW/2 - raise);
+    ghostEl.style.transform = `translate3d(${gx}px, ${gy}px, 0) scale(1.05)`;
   }
 
   function getCellGeometry(){
@@ -2424,8 +2682,6 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
         if(!dragging) return;
         moveGhost(dragging.x, dragging.y);
         updatePreview(dragging.x, dragging.y);
-        const { rows } = shapeSize(dragging.piece.shape);
-        spawnSpark(dragging.x, dragging.y - getGhostRaise(rows));
       });
     }
   }
@@ -2567,6 +2823,9 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
     if(rEl) rEl.textContent = (careerStats.rocksCrushed || 0).toLocaleString();
     const avg = careerStats.gamesPlayed > 0 ? Math.round((careerStats.totalScore || 0) / careerStats.gamesPlayed) : 0;
     if(aEl) aEl.textContent = avg.toLocaleString();
+
+    const bgEl = document.getElementById('badgesGrid');
+    if(bgEl) renderBadgesGrid(bgEl, careerStats, score, best, currentLang);
   }
 
   /* ═══════════════════════════════════════════════
@@ -2682,6 +2941,21 @@ import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderbo
       sfxNewBest();
     }
     document.getElementById('newbestLabel').style.display = isNewBest ? '' : 'none';
+
+    checkAndUnlockBadges(careerStats, finalScore, best, currentLang);
+    const highestBadge = getHighestBadge(careerStats, best);
+    const gob = document.getElementById('gameOverBadge');
+    if (gob) {
+      if (highestBadge) {
+        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+        const badgeTitle = t[`badge_${highestBadge.id}_title`] || highestBadge.id;
+        gob.innerHTML = `${highestBadge.icon} <span>${escapeHtml(badgeTitle)}</span>`;
+        gob.style.display = 'inline-flex';
+      } else {
+        gob.style.display = 'none';
+      }
+    }
+
     overlayEl.style.display = 'flex';
     sfxGameOver();
     clearGameState();

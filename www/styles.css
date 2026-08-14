@@ -231,46 +231,45 @@
     background: linear-gradient(135deg, rgba(251,191,36,0.18) 0%, rgba(20,24,36,0.85) 100%) !important;
   }
 
+  /* Realistic 3D Rock / Stone Blocks */
   .cell.stone-full{
-    background: linear-gradient(135deg, #646c82 0%, #3e4454 45%, #272b36 100%) !important;
+    background: url('assets/stone_full.svg') center/cover no-repeat, linear-gradient(135deg, #7a8296 0%, #464e61 45%, #1c1e27 100%) !important;
     box-shadow:
-      inset 0 2px 2px rgba(255,255,255,0.4),
-      inset 0 -2px 4px rgba(0,0,0,0.6),
-      inset 0 0 0 1px #8a94b0,
-      0 4px 10px rgba(0,0,0,0.45) !important;
+      inset 0 2px 3px rgba(255,255,255,0.65),
+      inset 0 -3px 5px rgba(0,0,0,0.85),
+      inset 0 0 0 1px rgba(180,190,215,0.45),
+      0 5px 12px rgba(0,0,0,0.6) !important;
     position:relative;
   }
-  .cell.stone-full::before{
-    content:'';
-    position:absolute; inset:0; border-radius:6px;
-    background-image:
-      radial-gradient(circle at 28% 26%, rgba(255,255,255,0.18) 0, transparent 38%),
-      radial-gradient(circle at 72% 68%, rgba(0,0,0,0.4) 0, transparent 46%);
-    pointer-events:none;
+  .cell.stone-full::after{
+    display:none !important; /* SVG provides authentic 3D chiseled highlights */
   }
+
   .cell.stone-cracked{
-    background: linear-gradient(135deg, #535a6e 0%, #323744 45%, #1e212b 100%) !important;
+    background: url('assets/stone_cracked.svg') center/cover no-repeat, linear-gradient(135deg, #697287 0%, #353b49 45%, #14161e 100%) !important;
     box-shadow:
-      inset 0 2px 2px rgba(255,255,255,0.3),
-      inset 0 -2px 3px rgba(0,0,0,0.6),
-      inset 0 0 0 1px #e2b714,
-      0 0 10px rgba(226,183,20,0.35) !important;
+      inset 0 2px 2px rgba(255,255,255,0.5),
+      inset 0 -3px 5px rgba(0,0,0,0.9),
+      inset 0 0 0 1.5px rgba(251,191,36,0.7),
+      0 0 12px 1px rgba(245,158,11,0.45) !important;
     position:relative;
+    animation: rockCrackPulse 1.4s ease-in-out infinite alternate;
   }
-  .cell.stone-cracked::before{
-    content:'';
-    position:absolute; inset:0; border-radius:6px;
-    background-image:
-      linear-gradient(105deg, transparent 46%, rgba(255,255,255,0.8) 49%, rgba(255,255,255,0.8) 51%, transparent 54%),
-      linear-gradient(22deg, transparent 43%, rgba(252,211,77,0.7) 47%, rgba(252,211,77,0.7) 50%, transparent 54%);
-    pointer-events:none;
+  .cell.stone-cracked::after{
+    display:none !important;
   }
-  .cell.cracking{ animation: crack-shake 0.26s ease; }
+  @keyframes rockCrackPulse {
+    0% { filter: drop-shadow(0 0 2px rgba(245,158,11,0.35)); }
+    100% { filter: drop-shadow(0 0 7px rgba(251,191,36,0.75)); }
+  }
+
+  .cell.cracking{ animation: crack-shake 0.28s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
   @keyframes crack-shake{
-    0%,100%{ transform:translate(0,0); }
-    25%{ transform:translate(-2px,1px); }
-    50%{ transform:translate(2px,-1px); }
-    75%{ transform:translate(-1px,1px); }
+    0%,100%{ transform:translate(0,0) rotate(0deg); }
+    20%{ transform:translate(-3px,2px) rotate(-1.5deg); }
+    40%{ transform:translate(3px,-2px) rotate(1.5deg); }
+    60%{ transform:translate(-2px,1px) rotate(-0.8deg); }
+    80%{ transform:translate(2px,-1px) rotate(0.8deg); }
   }
 
   .cell.bomb-cell{
@@ -291,6 +290,64 @@
     font-family:'JetBrains Mono', monospace; font-weight:700; font-size:15px;
     color:#fff; text-shadow:0 0 6px rgba(0,0,0,0.85), 0 0 6px #fb7185;
     pointer-events:none; z-index:3;
+  }
+
+  /* ── Pulsating Bonus Cube (Every 2-3 min, 10s duration, +100 pts) ── */
+  .cell.pulse-bonus-cell {
+    background: radial-gradient(circle, #fde047 0%, #f59e0b 50%, #d97706 100%) !important;
+    box-shadow:
+      inset 0 2px 3px rgba(255,255,255,0.9),
+      inset 0 -2px 4px rgba(0,0,0,0.6),
+      inset 0 0 0 2px #fde047,
+      0 0 18px 4px rgba(251, 191, 36, 0.85) !important;
+    position: relative;
+    z-index: 4;
+    animation: pulseBonusHeartbeat 0.8s ease-in-out infinite alternate !important;
+  }
+  .cell.pulse-bonus-cell.urgent {
+    animation: pulseBonusHeartbeat 0.38s ease-in-out infinite alternate !important;
+    box-shadow:
+      inset 0 2px 3px rgba(255,255,255,0.9),
+      inset 0 -2px 4px rgba(0,0,0,0.6),
+      inset 0 0 0 2px #ef4444,
+      0 0 22px 6px rgba(239, 68, 68, 0.95) !important;
+  }
+  @keyframes pulseBonusHeartbeat {
+    0% {
+      transform: scale(1);
+      filter: brightness(1) drop-shadow(0 0 6px #f59e0b);
+    }
+    100% {
+      transform: scale(1.08);
+      filter: brightness(1.4) drop-shadow(0 0 16px #fde047);
+    }
+  }
+  .pulse-bonus-label {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Chakra Petch', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    line-height: 1;
+    color: #fff;
+    text-shadow: 0 0 4px rgba(0,0,0,0.9), 0 0 8px #f59e0b;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .pulse-bonus-label .pb-sec {
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 800;
+    color: #fff;
+  }
+  .pulse-bonus-label .pb-pts {
+    font-size: 8px;
+    letter-spacing: 0.5px;
+    color: #fef08a;
   }
   .shockwave{
     position:fixed; border-radius:50%;
@@ -345,8 +402,15 @@
   }
   .piece-cell.off{ background:transparent; }
   .piece-cell.stone{
-    background: linear-gradient(135deg, #646c82 0%, #3e4454 45%, #272b36 100%) !important;
-    box-shadow: inset 0 1px 1px rgba(255,255,255,0.4), 0 2px 6px rgba(0,0,0,0.4);
+    background: url('assets/stone_full.svg') center/cover no-repeat, linear-gradient(135deg, #7a8296 0%, #464e61 45%, #1c1e27 100%) !important;
+    box-shadow:
+      inset 0 1px 1.5px rgba(255,255,255,0.65),
+      inset 0 -1.5px 2px rgba(0,0,0,0.75),
+      inset 0 0 0 1px rgba(180,190,215,0.45),
+      0 2px 6px rgba(0,0,0,0.5) !important;
+  }
+  .piece-cell.stone::after{
+    display: none !important;
   }
   .piece-cell.bomb{
     background: linear-gradient(135deg, #ff3366 0%, #99002a 60%, #400010 100%) !important;
@@ -360,9 +424,10 @@
 
   #dragghost{
     position:fixed; pointer-events:none; z-index:999; display:none;
-    grid-gap:4px; will-change:left, top, transform;
+    top:0; left:0;
+    grid-gap:4px; will-change:transform;
     filter: drop-shadow(0 14px 24px rgba(0,0,0,0.65)) drop-shadow(0 4px 8px rgba(0,0,0,0.4));
-    transform: scale(1.05);
+    transform: translate3d(-9999px, -9999px, 0) scale(1.05);
   }
   .ghost-cell{
     border-radius:7px;
@@ -382,8 +447,15 @@
   .ghost-cell.off{ background:transparent; box-shadow:none; }
   .ghost-cell.off::after{ display:none; }
   .ghost-cell.stone-full{
-    background: linear-gradient(135deg, #646c82 0%, #3e4454 45%, #272b36 100%) !important;
-    box-shadow: inset 0 2px 2px rgba(255,255,255,0.4), inset 0 0 0 1px #8a94b0 !important;
+    background: url('assets/stone_full.svg') center/cover no-repeat, linear-gradient(135deg, #7a8296 0%, #464e61 45%, #1c1e27 100%) !important;
+    box-shadow:
+      inset 0 2px 3px rgba(255,255,255,0.7),
+      inset 0 -2px 3px rgba(0,0,0,0.8),
+      inset 0 0 0 1px rgba(200,210,230,0.5),
+      0 4px 10px rgba(0,0,0,0.5) !important;
+  }
+  .ghost-cell.stone-full::after{
+    display: none !important;
   }
   .ghost-cell.bomb{
     background: linear-gradient(135deg, #ff3366 0%, #99002a 60%, #400010 100%) !important;
@@ -1233,5 +1305,259 @@
   body.app-paused .cell.bomb-cell {
     animation-play-state: paused !important;
   }
+
+  /* ── Achievements & Badges Showcase ── */
+  .badges-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+    max-height: 280px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+  .badges-grid::-webkit-scrollbar {
+    width: 4px;
+  }
+  .badges-grid::-webkit-scrollbar-thumb {
+    background: var(--line);
+    border-radius: 4px;
+  }
+
+  .badge-card {
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: transform 0.15s ease, border-color 0.2s ease;
+  }
+  .badge-card.unlocked {
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
+  }
+  .badge-card.unlocked.bronze {
+    border-color: rgba(205, 127, 50, 0.45);
+    box-shadow: inset 0 0 12px rgba(205, 127, 50, 0.08);
+  }
+  .badge-card.unlocked.silver {
+    border-color: rgba(226, 232, 240, 0.55);
+    box-shadow: inset 0 0 14px rgba(226, 232, 240, 0.12);
+  }
+  .badge-card.unlocked.gold {
+    border-color: rgba(251, 191, 36, 0.65);
+    box-shadow: inset 0 0 16px rgba(251, 191, 36, 0.15), 0 2px 10px rgba(251, 191, 36, 0.12);
+  }
+  .badge-card.unlocked.diamond {
+    border-color: rgba(56, 189, 248, 0.75);
+    box-shadow: inset 0 0 18px rgba(56, 189, 248, 0.2), 0 2px 12px rgba(56, 189, 248, 0.18);
+  }
+  .badge-card.locked {
+    opacity: 0.72;
+    filter: grayscale(0.2);
+  }
+
+  .badge-card-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .badge-card-icon-wrap {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+  }
+  .badge-card.unlocked .badge-card-icon-wrap.bronze {
+    background: radial-gradient(circle, rgba(205,127,50,0.3) 0%, rgba(205,127,50,0.05) 100%);
+    border-color: rgba(205,127,50,0.5);
+  }
+  .badge-card.unlocked .badge-card-icon-wrap.silver {
+    background: radial-gradient(circle, rgba(226,232,240,0.35) 0%, rgba(226,232,240,0.08) 100%);
+    border-color: rgba(226,232,240,0.6);
+  }
+  .badge-card.unlocked .badge-card-icon-wrap.gold {
+    background: radial-gradient(circle, rgba(251,191,36,0.4) 0%, rgba(251,191,36,0.1) 100%);
+    border-color: rgba(251,191,36,0.7);
+  }
+  .badge-card.unlocked .badge-card-icon-wrap.diamond {
+    background: radial-gradient(circle, rgba(56,189,248,0.45) 0%, rgba(56,189,248,0.12) 100%);
+    border-color: rgba(56,189,248,0.8);
+  }
+  .badge-card-icon {
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  .badge-card-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .badge-card-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .badge-card.unlocked.gold .badge-card-title {
+    color: #fbbf24;
+  }
+  .badge-card.unlocked.diamond .badge-card-title {
+    color: #38bdf8;
+  }
+  .badge-card-desc {
+    font-size: 10.5px;
+    color: var(--dim);
+    line-height: 1.3;
+    margin-top: 1px;
+  }
+
+  .badge-card-bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .badge-progress-bar {
+    width: 100%;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .badge-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+  .badge-progress-fill.bronze { background: linear-gradient(90deg, #b45309, #cd7f32); }
+  .badge-progress-fill.silver { background: linear-gradient(90deg, #94a3b8, #e2e8f0); }
+  .badge-progress-fill.gold { background: linear-gradient(90deg, #d97706, #fbbf24); }
+  .badge-progress-fill.diamond { background: linear-gradient(90deg, #0284c7, #38bdf8); }
+
+  .badge-progress-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+  }
+  .badge-progress-txt {
+    color: var(--dim);
+  }
+  .badge-status-tag {
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .badge-status-tag.tag-unlocked {
+    color: #34d399;
+    background: rgba(52, 211, 153, 0.12);
+  }
+  .badge-status-tag.tag-locked {
+    color: var(--dim);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  /* ── In-Game Unlock Toast Banner ── */
+  .badge-unlock-toast {
+    position: fixed;
+    top: -90px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    width: 90%;
+    max-width: 360px;
+    pointer-events: none;
+    transition: top 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  .badge-unlock-toast.show {
+    top: 24px;
+  }
+  .badge-toast-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(251, 191, 36, 0.7);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 20px rgba(251, 191, 36, 0.3);
+    animation: toastGlowPulse 1.8s infinite alternate ease-in-out;
+  }
+  .badge-toast-content.bronze {
+    border-color: rgba(205, 127, 50, 0.75);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 20px rgba(205, 127, 50, 0.3);
+  }
+  .badge-toast-content.silver {
+    border-color: rgba(226, 232, 240, 0.85);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 20px rgba(226, 232, 240, 0.35);
+  }
+  .badge-toast-content.gold {
+    border-color: rgba(251, 191, 36, 0.9);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 24px rgba(251, 191, 36, 0.4);
+  }
+  .badge-toast-content.diamond {
+    border-color: rgba(56, 189, 248, 0.95);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 25px rgba(56, 189, 248, 0.45);
+  }
+  @keyframes toastGlowPulse {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.02); }
+  }
+
+  .badge-toast-icon {
+    font-size: 28px;
+    line-height: 1;
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.4));
+  }
+  .badge-toast-details {
+    display: flex;
+    flex-direction: column;
+  }
+  .badge-toast-heading {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #fbbf24;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .badge-toast-name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  /* ── Game Over Highest Badge Pill ── */
+  .game-over-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(30, 41, 59, 0.8);
+    border: 1px solid rgba(251, 191, 36, 0.4);
+    border-radius: 20px;
+    padding: 4px 12px;
+    margin: 6px auto 10px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fbbf24;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+
 
 

@@ -9,7 +9,9 @@
 <meta property="og:description" content="Moderna statička slagalica igra sa rang listom i eksplozijama.">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#0c0e14">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🧱</text></svg>">
+<link rel="icon" type="image/png" sizes="64x64" href="assets/favicon.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
 <!-- Firebase SDK (bez SRI: gstatic u Capacitor WebView-u servira drugačije bajtove pa bi hash
      uvek promašio i skripte bile blokirane; fajlovi su verzionisani i immutable, pa je rizik nizak) -->
 <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -101,6 +103,7 @@
     <h2 id="gameOverHeading">KRAJ IGRE</h2>
     <div class="finalscore" id="finalscore">0</div>
     <div class="newbest" id="newbestLabel" style="display:none">⭐ NOVI REKORD! ⭐</div>
+    <div class="game-over-badge" id="gameOverBadge" style="display:none"></div>
     <p id="gameOverDesc">Nema mesta za preostale komade</p>
     <div class="overlay-btns">
       <button id="restartBtn">IGRAJ PONOVO</button>
@@ -205,6 +208,12 @@
             <span class="stat-lbl" id="i18n_statAvg">Prosek</span>
           </div>
         </div>
+      </div>
+
+      <!-- Section: Achievements & Badges Showcase -->
+      <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-label" id="i18n_badgesLabel">🏅 DOSTIGNUĆA & BEDŽEVI</div>
+        <div class="badges-grid" id="badgesGrid"></div>
       </div>
 
       <!-- Section 4: Match History -->
