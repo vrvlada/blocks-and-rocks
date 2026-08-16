@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Blocks and Rocks — Statička Slagalica</title>
+<meta name="description" content="Blocks and Rocks je moderna statička slagalica igra. Postavljaj komade, čisti linije, izbegavaj bombe i osvoji rang listu!">
+<meta property="og:title" content="Blocks and Rocks">
+<meta property="og:description" content="Moderna statička slagalica igra sa rang listom i eksplozijama.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0c0e14">
+<meta name="google-site-verification" content="Px_ogrzXbcVNR_PSEL9aEh2aXKrGlhfHTxdU1veRETI">
+<link rel="icon" type="image/png" sizes="64x64" href="assets/favicon.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+<meta name="google-signin-client_id" content="556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com">
+<!-- Firebase SDK (bez SRI: gstatic u Capacitor WebView-u servira drugačije bajtove pa bi hash
+     uvek promašio i skripte bile blokirane; fajlovi su verzionisani i immutable, pa je rizik nizak) -->
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="stars layer3"></div>
+<div class="stars layer2"></div>
+<div class="stars layer1"></div>
+<div id="wrap">
+  <header>
+    <div class="header-top">
+      <div>
+        <div class="logo">BLOCKS <span>AND</span> ROCKS</div>
+        <div class="sub" id="headerSub">STATIČKA SLAGALICA</div>
+      </div>
+      <div class="scores">
+        <div class="scorebox"><div class="label" id="scoreLabel">SKOR</div><div class="val" id="score">0</div></div>
+        <div class="scorebox best"><div class="label" id="bestLabel">NAJBOLJI</div><div class="val" id="best">0</div></div>
+      </div>
+    </div>
+    <div class="header-actions" role="toolbar" aria-label="Kontrole igre">
+      <button class="hdr-btn restart" id="btnRestart" title="Nova Igra" aria-label="Nova Igra">🔄</button>
+      <button class="hdr-btn" id="btnMute" title="Zvuk" aria-label="Zvuk">🔊</button>
+      <button class="hdr-btn" id="btnPause" title="Pauza" aria-label="Pauza">⏸</button>
+      <button class="hdr-btn trophy" id="btnTrophy" title="Rang Lista" aria-label="Rang Lista">🏆</button>
+      <button class="hdr-btn" id="btnSettings" title="Podešavanja" aria-label="Podešavanja">⚙️</button>
+    </div>
+  </header>
+
+  <div style="position:relative; width:100%; max-width:400px;">
+    <div id="board" role="grid" aria-label="Tabla za igru"></div>
+  </div>
+  <div id="msg" aria-live="polite">Prevuci komad na mrežu · svaki 10. komad ima kamenu kockicu koja puca dvaput</div>
+
+  <!-- Power-Ups & Combo Bar -->
+  <div class="powerups-bar" id="powerupsBar">
+    <button class="pu-btn" id="btnHammer" title="Čekić — Razbij bilo koju kocku na tabli" aria-label="Čekić">
+      <span class="pu-icon">🔨</span>
+      <span class="pu-label" id="puHammerText">ČEKIĆ</span>
+      <span class="pu-badge" id="puHammerCount">1</span>
+    </button>
+    <div class="combo-pill" id="comboPill" style="display:none;">
+      <span class="combo-icon">🔥</span>
+      <span class="combo-text" id="comboPillText">KOMBO x2</span>
+    </div>
+    <button class="pu-btn" id="btnReroll" title="Promeni komade u fioci" aria-label="Promeni komade">
+      <span class="pu-icon">🎲</span>
+      <span class="pu-label" id="puRerollText">ZAMENI</span>
+      <span class="pu-badge" id="puRerollCount">1</span>
+    </button>
+  </div>
+
+  <div id="tray" aria-label="Poslužavnik sa komadima"></div>
+
+  <div class="bottom-records" id="bottomRecords" aria-label="Najveći rekordi">
+    <div class="bottom-rec-card country-rec" id="bottomCountryCard" role="button" tabindex="0" title="Državni rekord">
+      <div class="rec-top">
+        <span class="rec-flag" id="bottomCountryFlag">🇷🇸</span>
+        <span class="rec-country-name" id="bottomCountryName">Srbija</span>
+      </div>
+      <div class="rec-main">
+        <span class="rec-player" id="bottomCountryPlayer">—</span>
+        <span class="rec-points" id="bottomCountryPoints">0</span>
+      </div>
+    </div>
+
+    <div class="bottom-rec-card global-rec" id="bottomGlobalCard" role="button" tabindex="0" title="Svetski rekord">
+      <div class="rec-top">
+        <span class="rec-flag" id="bottomGlobalFlag">🌍</span>
+        <span class="rec-country-name" id="bottomGlobalName">Svet</span>
+      </div>
+      <div class="rec-main">
+        <span class="rec-player" id="bottomGlobalPlayer">—</span>
+        <span class="rec-points" id="bottomGlobalPoints">0</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="dragghost" aria-hidden="true"></div>
+
+
+<div id="overlay" role="dialog" aria-modal="true" aria-labelledby="gameOverHeading">
+  <div class="card">
+    <h2 id="gameOverHeading">KRAJ IGRE</h2>
+    <div class="finalscore" id="finalscore">0</div>
+    <div class="newbest" id="newbestLabel" style="display:none">⭐ NOVI REKORD! ⭐</div>
+    <div class="game-over-badge" id="gameOverBadge" style="display:none"></div>
+    <p id="gameOverDesc">Nema mesta za preostale komade</p>
+    <div class="overlay-btns">
+      <button id="restartBtn">IGRAJ PONOVO</button>
+      <button class="btn-share" id="btnShareScore">📤 PODELI REZULTAT</button>
+      <button class="btn-secondary" id="showLbBtn">🏆 RANG LISTA</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pause Overlay -->
+<div id="pause-overlay" role="dialog" aria-modal="true" aria-labelledby="pauseHeading">
+  <div class="card">
+    <h2 id="pauseHeading" style="color:var(--accent)">⏸ PAUZA</h2>
+    <p id="pauseDesc">Igra je pauzirana — bombe su zaustavljene.</p>
+    <div class="overlay-btns">
+      <button id="resumeBtn">▶ NASTAVI</button>
+      <button class="btn-secondary" id="pauseMuteBtn">🔊 Zvuk: UKLJ. </button>
+      <button class="btn-secondary" id="pauseRestartBtn">🔄 NOVA IGRA</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings & Profile Modal -->
+<div id="username-modal" role="dialog" aria-modal="true" aria-labelledby="settingsHeading">
+  <div class="ucard">
+    <div class="ucard-header">
+      <h3 id="settingsHeading" style="margin:0">⚙️ PODEŠAVANJA & PROFIL</h3>
+      <button class="ucard-close" id="usernameCloseBtn" title="Zatvori" aria-label="Zatvori podešavanja">✕</button>
+    </div>
+    
+    <div id="usernameWelcomeDesc" class="udesc" style="display:none; margin-top:8px; margin-bottom:12px; line-height:1.4;">
+      Unesite jedinstveni nadimak za rang listu i profil.
+    </div>
+
+    <!-- Section 1: Username & Google Account -->
+    <div class="setting-section">
+      <div class="setting-label" id="i18n_usernameLabel">👤 KORISNIČKO IME (3-12 karaktera)</div>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="usernameInput" maxlength="12" placeholder="VašeIme" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Korisničko ime">
+        <button id="usernameSaveBtn" disabled style="width:auto; padding:0 16px;">SAČUVAJ</button>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px; min-height:16px;">
+        <div id="usernameAvailability" class="uavail" aria-live="polite"></div>
+        <div class="ucount" id="usernameCount" aria-live="polite">0 / 12</div>
+      </div>
+
+      <div id="googleSection" style="margin-top:12px;">
+        <button id="btnLinkGoogle" style="background:#fff; color:#444; width:100%; display:flex; align-items:center; justify-content:center; gap:8px;">
+          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:18px; height:18px;" alt="Google Logo">
+          <span id="btnLinkGoogleText">Poveži Google nalog</span>
+        </button>
+        <div id="googleStatus" style="margin-top:6px; font-family:'JetBrains Mono', monospace; font-size:10px; color:var(--dim);">Sačuvajte rezultat trajno</div>
+      </div>
+    </div>
+
+    <div id="otherSettingsSections">
+      <!-- Section 2: Language -->
+      <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-label" id="i18n_langLabel">🌐 JEZIK / LANGUAGE</div>
+        <select id="langSelect" class="lang-select" aria-label="Izbor jezika">
+          <option value="sr">🇷🇸 Srpski</option>
+          <option value="en">🇬🇧 English</option>
+          <option value="de">🇩🇪 Deutsch</option>
+          <option value="es">🇪🇸 Español</option>
+          <option value="fr">🇫🇷 Français</option>
+          <option value="ru">🇷🇺 Русский</option>
+        </select>
+      </div>
+
+      <!-- Section 3: Career Statistics Dashboard -->
+      <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-label" id="i18n_statsLabel">📊 STATISTIKA KARIJERE</div>
+        <div class="stats-grid" id="statsGrid">
+          <div class="stat-card">
+            <span class="stat-icon">🎮</span>
+            <span class="stat-val" id="statGames">0</span>
+            <span class="stat-lbl" id="i18n_statGames">Partija</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-icon">✨</span>
+            <span class="stat-val" id="statLines">0</span>
+            <span class="stat-lbl" id="i18n_statLines">Linija</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-icon">🔥</span>
+            <span class="stat-val" id="statMaxCombo">x1</span>
+            <span class="stat-lbl" id="i18n_statCombo">Maks Kombo</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-icon">💥</span>
+            <span class="stat-val" id="statBombs">0</span>
+            <span class="stat-lbl" id="i18n_statBombs">Bombi</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-icon">🪨</span>
+            <span class="stat-val" id="statRocks">0</span>
+            <span class="stat-lbl" id="i18n_statRocks">Kamenja</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-icon">📈</span>
+            <span class="stat-val" id="statAvgScore">0</span>
+            <span class="stat-lbl" id="i18n_statAvg">Prosek</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section: Achievements & Badges Showcase -->
+      <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-label" id="i18n_badgesLabel">🏅 DOSTIGNUĆA & BEDŽEVI</div>
+        <div class="badges-grid" id="badgesGrid"></div>
+      </div>
+
+      <!-- Section 4: Match History -->
+      <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-label" id="i18n_historyLabel">📜 POSLEDNJE PARTIJE</div>
+        <div id="matchHistoryList" class="match-history-list"></div>
+      </div>
+
+      <!-- Section 5: Drag Height Offset -->
+      <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-header-row">
+          <div class="setting-label" id="i18n_dragOffsetLabel">🎚️ ODIZANJE PRI PREVLAČENJU</div>
+          <div class="setting-val-badge" id="dragOffsetVal">2.0x Kockice</div>
+        </div>
+        <input type="range" id="dragOffsetRange" min="1" max="2.5" step="0.5" value="2.0" class="setting-slider" aria-label="Odizanje komada pri prevlačenju">
+        <div class="slider-labels">
+          <span>1.0x</span>
+          <span>1.5x</span>
+          <span>2.0x</span>
+          <span>2.5x</span>
+        </div>
+      </div>
+
+      <!-- Section 6: Haptic Feedback -->
+      <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-label" id="i18n_hapticLabel">📳 VIBRACIJA (HAPTICS)</div>
+        <div class="haptic-toggle-group" id="hapticGroup">
+          <button class="haptic-opt" data-val="strong" id="hapticStrongBtn">Jako</button>
+          <button class="haptic-opt active" data-val="medium" id="hapticMediumBtn">Srednje</button>
+          <button class="haptic-opt" data-val="light" id="hapticLightBtn">Blago</button>
+          <button class="haptic-opt" data-val="off" id="hapticOffBtn">Isključeno</button>
+        </div>
+      </div>
+
+      <!-- Section 7: High Contrast Accessibility -->
+      <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-row">
+          <div>
+            <div class="setting-label" style="margin-bottom:2px;" id="i18n_highContrastTitle">👁️ VISOKI KONTRAST</div>
+            <div class="setting-sub" id="i18n_highContrastDesc">Izražene ivice i konture blokova</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="highContrastToggle" aria-label="Uključi/isključi visoki kontrast">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Section 7b: Reduce Motion Accessibility -->
+      <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-row">
+          <div>
+            <div class="setting-label" style="margin-bottom:2px;" id="i18n_reduceMotionTitle">🧘 SMANJEN POKRET</div>
+            <div class="setting-sub" id="i18n_reduceMotionDesc">Smanjuje animacije i efekte (tresenje, konfete, iskre)</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="reducedMotionToggle" aria-label="Uključi/isključi smanjen pokret">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Section 8: Particle Trail -->
+      <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-row">
+          <div>
+            <div class="setting-label" style="margin-bottom:2px;" id="i18n_particleTitle">✨ TRAG ISKRICAMA</div>
+            <div class="setting-sub" id="i18n_particleDesc">Čestice prate komad pri prevlačenju</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="particleTrailToggle" checked aria-label="Uključi/isključi trag iskricama">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Leaderboard Overlay -->
+<div id="lb-overlay" role="dialog" aria-modal="true" aria-labelledby="leaderboardHeading">
+  <div class="lb-card">
+    <div class="lb-header">
+      <h3 id="leaderboardHeading">🏆 RANG LISTA</h3>
+      <button class="lb-close" id="lbCloseBtn" title="Zatvori" aria-label="Zatvori rang listu">✕</button>
+    </div>
+    <div class="lb-personal">
+      <div class="pb-label">TVOJI NAJBOLJI REZULTATI (TOP 3)</div>
+      <div class="pb-score" id="lbPersonalBest">0<span>pts</span></div>
+      <div id="lbMyList" class="lb-mylist"></div>
+    </div>
+    <div class="lb-tabs" role="tablist">
+      <button class="lb-tab active" data-tab="country" id="tabCountry" role="tab" aria-selected="true">🏠 DRŽAVA</button>
+      <button class="lb-tab" data-tab="global" id="tabGlobal" role="tab" aria-selected="false">🌍 SVET</button>
+    </div>
+    <div class="lb-country-label" id="lbCountryLabel"></div>
+    <div id="lbContent" aria-live="polite">
+      <div class="lb-loading"><div class="lb-spinner"></div></div>
+    </div>
+    <div id="lbLoadMoreWrap" style="display:none; text-align:center; margin-top:12px;">
+      <button class="lb-loadmore" id="lbLoadMoreBtn">UČITAJ JOŠ</button>
+    </div>
+  </div>
+</div>
+
+<canvas id="confettiCanvas"></canvas>
+
+  <script defer src="gameCore.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
