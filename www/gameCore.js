@@ -212,7 +212,7 @@
           r: rr, c: cc,
           color: data.color || '#fb7185',
           willRemove,
-          isRock: !!(data.maxHp === 2),
+          isRock: !!(data.maxHp >= 2), // granit (3 HP) je takođe kamen
           isBomb: !!data.bomb,
         });
       }

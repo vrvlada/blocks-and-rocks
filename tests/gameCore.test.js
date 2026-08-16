@@ -354,6 +354,20 @@ test('countBombExplosionStats: counts rocks destroyed by explosion (rock_crusher
   assert.equal(res.rocksCrushed, 1);
 });
 
+test('countBombExplosionStats: granit (3 HP) se takođe računa kao kamen kada je uništen', () => {
+  const grid = G.makeGrid(5);
+  grid[2][2] = { color: '#000', hp: 1, maxHp: 1, bomb: true, timer: 3 }; // centralna bomba
+  grid[1][1] = { color: '#555', hp: 1, maxHp: 3 };                        // granit na 1 HP → uništen
+  grid[1][2] = { color: '#555', hp: 2, maxHp: 3 };                        // granit na 2 HP → samo napukla
+  const res = G.countBombExplosionStats(grid, 5, 2, 2);
+  // affected: bomba + 2 granita
+  assert.equal(res.affected.length, 3);
+  // rocksCrushed = granit na 1 HP (uklonjen) = 1; granit na 2 HP samo napukla
+  assert.equal(res.rocksCrushed, 1, 'granit na 1 HP treba da se računa kao kamen');
+  const crackedGranite = res.affected.find(p => p.r === 1 && p.c === 2);
+  assert.ok(crackedGranite && crackedGranite.isRock, 'napukla granita je označena kao rock');
+});
+
 test('countBombExplosionStats: out-of-bounds neighbours are skipped', () => {
   const grid = G.makeGrid(3);
   grid[0][0] = { color: '#000', hp: 1, maxHp: 1, bomb: true, timer: 3 }; // bomba u uglu

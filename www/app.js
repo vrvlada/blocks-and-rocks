@@ -2446,7 +2446,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     if(comboStreak > 1) recordCareerStat('maxCombo', comboStreak);
     const defusedCount = cellsArr.filter(c => { const d = grid[c.r][c.c]; return d && d.bomb && c.willRemove; }).length;
     if(defusedCount > 0) recordCareerStat('bombsDefused', defusedCount);
-    const rockDestroyedCount = cellsArr.filter(c => { const d = grid[c.r][c.c]; return d && d.maxHp === 2 && c.willRemove; }).length;
+    const rockDestroyedCount = cellsArr.filter(c => { const d = grid[c.r][c.c]; return d && d.maxHp >= 2 && c.willRemove; }).length;
     if(rockDestroyedCount > 0) recordCareerStat('rocksCrushed', rockDestroyedCount);
 
     const prevScoreBeforeLines = score;
@@ -2685,7 +2685,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           const globalBox = document.getElementById('bottomGlobalCard');
           if(globalBox) globalBox.classList.add('record-breaking');
           const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-          setMsg(t.worldRecordBroken || '🌍 NOVI SVETSKI REKORD! 🎉', CONFIG.MSG_DURATION_COMBO || 2500);
+          showMsg(t.worldRecordBroken || '🌍 NOVI SVETSKI REKORD! 🎉', CONFIG.MSG_DURATION_COMBO || 2500);
         }
       }
 
