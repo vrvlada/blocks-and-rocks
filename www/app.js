@@ -1955,6 +1955,14 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       }
 
       updatePowerupUI();
+
+      // Bugfix: resetuj "dostignute" milestone nivoe za NOVU partiju (fresh ili resume).
+      // Bez ovoga bi kasnije partije preskočile spawn kamenja/leda ispod maksimuma
+      // dostignutog u prethodnoj partiji — lastMilestone* bi ostali na starom nivou,
+      // pa `reached > lastMilestone` nikad ne bi prošlo za ranije pragove.
+      lastMilestoneHazardLevel = GameCore.getMilestoneHazardLevel(score);
+      lastFibonacciMilestoneIndex = GameCore.getFibonacciRockMilestone(score);
+
       track('game_start', { from_save: !!saved });
       render();
       overlayEl.style.display = 'none';
@@ -2182,7 +2190,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   /* ═══════════════════════════════════════════════
-   *  PULSE BONUS CUBE (Every 2-3 min, 10s duration, +100 bonus pts)
+   *  PULSE BONUS CUBE (Every 2-3 min, 10s duration, +250 bonus pts)
    * ═══════════════════════════════════════════════ */
   let pulseBonusState = {
     r: -1,
@@ -3369,6 +3377,12 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
    *  GAME OVER HANDLER — integrates score submit, history & career stats
    * ═══════════════════════════════════════════════ */
   function handleGameOver(){
+    // Zaustavi tajmere koji bi radili u prazno na game-over ekranu
+    // (puls bonus odbrojavanje, puls spawn reschedule, bomb ticker).
+    if(pulseBonusState.intervalId){ clearInterval(pulseBonusState.intervalId); pulseBonusState.intervalId = null; }
+    if(pulseBonusState.nextSpawnTimeoutId){ clearTimeout(pulseBonusState.nextSpawnTimeoutId); pulseBonusState.nextSpawnTimeoutId = null; }
+    resetBombTickers();
+
     const finalScore = score;
     const finalCombo = comboStreak;
     saveMatchToHistory(finalScore, finalCombo);
