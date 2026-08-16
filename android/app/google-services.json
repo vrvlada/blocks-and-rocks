@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "556570853814",
+    "project_id": "blocks-and-rocks",
+    "storage_bucket": "blocks-and-rocks.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:556570853814:android:b2128185c5e83b45870117",
+        "android_client_info": {
+          "package_name": "com.blocksrocks.game"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBDZZao2wwUTWoNMIsIkA5svMYxGZNsE_Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
