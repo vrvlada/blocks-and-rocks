@@ -14,6 +14,11 @@ serviceAccount*.json
 firebase-debug.log
 firestore-debug.log
 
+# Android Keystore / privatni ključevi — NE komitovati
+*.jks
+*.keystore
+keystore.properties
+
 # Firebase Auth dump/eksport korisnika — sadrži identifikacione podatke, NE komitovati
 users_auth.json
 

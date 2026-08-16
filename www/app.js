@@ -521,6 +521,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     setText('i18n_statAvg', t.statAvg || 'Prosek');
     setText('i18n_highContrastTitle', t.highContrastTitle || '👁️ VISOKI KONTRAST');
     setText('i18n_highContrastDesc', t.highContrastDesc || 'Izražene ivice i konture blokova');
+    setText('i18n_legalLabel', t.legalLabel || '⚖️ PRAVILNIK & USLOVI');
+    setText('i18n_privacyLink', t.privacyLink || '🔒 Politika privatnosti');
+    setText('i18n_termsLink', t.termsLink || '📄 Uslovi korišćenja');
 
     updateDragOffsetSetting(userDragOffsetMultiplier);
     updateHapticSetting(getHapticMode());
