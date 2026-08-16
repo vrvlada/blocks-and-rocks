@@ -7,8 +7,8 @@ android {
         applicationId "com.blocksrocks.game"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.0.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -18,10 +18,21 @@ android {
     }
     signingConfigs {
         release {
-            storeFile file('blocks-rocks-release.jks')
-            storePassword 'BlocksRocks2026!'
-            keyAlias 'blocksrocks'
-            keyPassword 'BlocksRocks2026!'
+            def ksPropFile = rootProject.file('keystore.properties')
+            def localKsFile = file('blocks-rocks-release.jks')
+            if (ksPropFile.exists()) {
+                def props = new Properties()
+                props.load(new FileInputStream(ksPropFile))
+                storeFile file(props['storeFile'] ?: 'blocks-rocks-release.jks')
+                storePassword props['storePassword']
+                keyAlias props['keyAlias'] ?: 'upload'
+                keyPassword props['keyPassword']
+            } else if (localKsFile.exists()) {
+                storeFile localKsFile
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD') ?: ''
+                keyAlias System.getenv('ANDROID_KEY_ALIAS') ?: 'upload'
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD') ?: ''
+            }
         }
     }
     buildTypes {
