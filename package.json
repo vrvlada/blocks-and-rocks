@@ -7,7 +7,10 @@
     "test": "node --test",
     "copy": "cap copy android",
     "sync": "cap sync android",
-    "build:android": "npm test && cap sync android"
+    "build:android": "npm test && cap sync android",
+    "deploy": "firebase deploy",
+    "deploy:hosting": "firebase deploy --only hosting",
+    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes"
   },
   "keywords": [],
   "author": "",
