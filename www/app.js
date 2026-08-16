@@ -2437,7 +2437,18 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           grid[r][c] = null;
           const idx = r*SIZE+c;
           const el = boardEl.children[idx];
-          if(el) el.classList.remove('clearing');
+          if(el){
+            // BUGFIX: uklanjanje 'clearing' klase vratilo bi ćeliju u "filled" izgled
+            // (opacity/transform se odmah vrate, a .cell transition:background 0.08s
+            // bi animirao boju u tamno) → kocke bi "bljesnule" pa nestale.
+            // Supresijom tranzicije ćelija odmah prelazi u prazno stanje bez bljeska.
+            el.style.transition = 'none';
+            el.className = 'cell';
+            el.style.backgroundColor = '';
+            el.style.color = '';
+            void el.offsetWidth; // primeni promenu dok je tranzicija isključena
+            el.style.transition = '';
+          }
         }
       });
       lineClearInProgress = false;
