@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <script>
+    if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) {
+      window.location.replace('game.html');
+    }
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Blocks and Rocks — Official Game Page &amp; Guide</title>
   <meta name="description" content="Master the rules, tactics, hazards, and power-ups of Blocks and Rocks. Place puzzle blocks, smash cracking stones, defuse ticking bombs, and climb the global leaderboard!">
