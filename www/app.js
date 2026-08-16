@@ -45,17 +45,47 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     if (typeof firebase !== 'undefined' && firebase.initializeApp) {
       fb_app = firebase.initializeApp(firebaseConfig);
 
-      // App Check (reCAPTCHA v3) — MORA pre auth/firestore poziva da bi tokeni važili
-      if (appCheckSiteKey && typeof firebase.appCheck === 'function') {
+      // App Check — MORA pre auth/firestore poziva da bi tokeni važili.
+      // Web: reCAPTCHA v3. Android/iOS: Play Integrity (Android) / DeviceCheck (iOS)
+      // preko native plugina, a web SDK (Firestore/Auth) token dobija kroz
+      // CustomProvider koji poziva nativni getToken — bez reCAPTCHA iframe-a u WebView-u.
+      // Napomena: backend pravila trenutno NE zahtevaju App Check (samo request.auth),
+      // pa je ovo bezbedno — ako token ne uspe, igra i dalje radi.
+      if (typeof firebase.appCheck === 'function') {
         try {
-          if (!window.Capacitor && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-            // Dev mod: SDK ispisuje debug token u konzolu → registruj ga u
+          const isNativeAppCheck = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+          const NativeAppCheck = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.FirebaseAppCheck;
+
+          if (!isNativeAppCheck && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+            // Dev mod (web): SDK ispisuje debug token u konzolu → registruj ga u
             // Firebase Console → App Check → Apps → Manage debug tokens
             self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
           }
+
           fb_appCheck = firebase.appCheck();
-          fb_appCheck.activate(appCheckSiteKey, true); // true = automatsko osvežavanje tokena
-          console.log('[B&R] App Check aktivan (reCAPTCHA v3)');
+
+          if (isNativeAppCheck && NativeAppCheck && typeof NativeAppCheck.getToken === 'function'
+              && typeof firebase.appCheck.CustomProvider === 'function') {
+            // Nativni App Check (Play Integrity) + most za web SDK.
+            if (typeof NativeAppCheck.initialize === 'function') {
+              NativeAppCheck.initialize({ isTokenAutoRefreshEnabled: true }).catch(()=>{});
+            }
+            const nativeProvider = new firebase.appCheck.CustomProvider({
+              getToken: async () => {
+                const res = await NativeAppCheck.getToken();
+                return {
+                  token: res.token,
+                  expireTimeMillis: (typeof res.expireTimeMillis === 'number') ? res.expireTimeMillis : (Date.now() + 3600*1000)
+                };
+              }
+            });
+            fb_appCheck.activate(nativeProvider, true);
+            console.log('[B&R] App Check aktivan (Play Integrity / native)');
+          } else if (appCheckSiteKey) {
+            // Web browser: reCAPTCHA v3
+            fb_appCheck.activate(appCheckSiteKey, true); // true = automatsko osvežavanje tokena
+            console.log('[B&R] App Check aktivan (reCAPTCHA v3)');
+          }
         } catch(acErr) {
           console.warn('[B&R] App Check init nije uspeo — nastavljam bez njega:', acErr && acErr.message);
         }
