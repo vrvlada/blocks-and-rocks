@@ -119,7 +119,7 @@ async function fetchGlobalBatch(afterSnap, limit){
     if(afterSnap) q = q.startAfter(afterSnap);
     q = q.limit(limit || PAGE_SIZE);
     const snap = await q.get();
-    return { items: snap.docs.map(d => d.data()), lastSnap: snap.docs.length ? snap.docs[snap.docs.length-1] : null };
+    return { items: snap.docs.map(d => ({ id: d.id, ...d.data() })), lastSnap: snap.docs.length ? snap.docs[snap.docs.length-1] : null };
   } catch(err){
     console.warn('[B&R] Global fetch failed:', err.message);
     return { items: [], lastSnap: null };
@@ -137,7 +137,7 @@ async function fetchCountryBatch(code, afterSnap, limit){
     if(afterSnap) q = q.startAfter(afterSnap);
     q = q.limit(fetchLimit);
     const snap = await q.get();
-    return { items: snap.docs.map(d => d.data()), lastSnap: snap.docs.length ? snap.docs[snap.docs.length-1] : null };
+    return { items: snap.docs.map(d => ({ id: d.id, ...d.data() })), lastSnap: snap.docs.length ? snap.docs[snap.docs.length-1] : null };
   } catch(err){
     console.warn('[B&R] Country fetch failed, using global filter fallback:', err.message);
     try {
@@ -150,6 +150,23 @@ async function fetchCountryBatch(code, afterSnap, limit){
   }
 }
 
+
+/**
+ * Uklanja duplikate iz liste rezultata na osnovu dokument-id (ili fallback
+ * userId+score+createdAt ako id nedostaje). Sprecava duplikate pri "Učitaj još".
+ */
+function dedupeLbItems(items){
+  const seen = new Set();
+  return (items || []).filter(it => {
+    if(!it) return false;
+    const k = it.id
+      ? it.id
+      : ((it.userId || '') + '|' + (it.score || 0) + '|' + (it.createdAt || ''));
+    if(seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
 
 export async function fetchMyTop3(){
   let localTop = [];
@@ -290,13 +307,13 @@ export async function loadLeaderboard(tab){
       lbCountryLabel.style.display = '';
       res = await fetchCountryBatch(countryCode, null, PAGE_SIZE);
     }
-    lbItems = res.items;
+    lbItems = dedupeLbItems(res.items);
     lbLastSnap = res.lastSnap;
     lbAllLoaded = !res.lastSnap || res.items.length < PAGE_SIZE || lbItems.length >= 100;
   } else {
     lbCountryLabel.style.display = 'none';
     res = await fetchGlobalBatch(null, PAGE_SIZE);
-    lbItems = res.items;
+    lbItems = dedupeLbItems(res.items);
     lbLastSnap = res.lastSnap;
     lbAllLoaded = !res.lastSnap || res.items.length < PAGE_SIZE;
   }
@@ -312,12 +329,12 @@ async function loadMore(){
     if(currentTab === 'country'){
       if(countryCode === 'XX') res = await fetchGlobalBatch(lbLastSnap, PAGE_SIZE);
       else res = await fetchCountryBatch(countryCode, lbLastSnap, PAGE_SIZE);
-      lbItems = GameCore.mergePages(lbItems, res.items);
+      lbItems = dedupeLbItems(GameCore.mergePages(lbItems, res.items));
       lbLastSnap = res.lastSnap;
       lbAllLoaded = !res.lastSnap || res.items.length < PAGE_SIZE || lbItems.length >= 100;
     } else {
       res = await fetchGlobalBatch(lbLastSnap, PAGE_SIZE);
-      lbItems = GameCore.mergePages(lbItems, res.items);
+      lbItems = dedupeLbItems(GameCore.mergePages(lbItems, res.items));
       lbLastSnap = res.lastSnap;
       lbAllLoaded = !res.lastSnap || res.items.length < PAGE_SIZE;
     }

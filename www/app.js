@@ -1495,6 +1495,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   let lineClearInProgress = false;
   let actionDebounce = {};
   let gameOverTimer = null;
+  let stuckHintShown = false;
 
   const boardEl = document.getElementById('board');
   const trayEl = document.getElementById('tray');
@@ -1621,6 +1622,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         setTimeout(() => slot.classList.remove('pop-in'), 280);
       });
       saveGameState();
+      stuckHintShown = false;
       checkAndTriggerGameOver();
     });
   }
@@ -1742,7 +1744,13 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   function saveGameState(){
     if(gameOver) { localStorage.removeItem('blocksrocks_gameState'); return; }
     try {
-      const state = { grid, tray, score, comboStreak, hammersCount, rerollsCount, pieceCounter, bombCounter, nextBombAt };
+      // Pulse-bonus stanje se čuva da kocka ne bi bila "zamrznuta" posle re-load-a
+      const pulse = (pulseBonusState.r >= 0) ? {
+        r: pulseBonusState.r,
+        c: pulseBonusState.c,
+        timer: pulseBonusState.timer,
+      } : null;
+      const state = { grid, tray, score, comboStreak, hammersCount, rerollsCount, pieceCounter, bombCounter, nextBombAt, pulse };
       localStorage.setItem('blocksrocks_gameState', JSON.stringify(state));
     } catch(e){
       if(e.name === 'QuotaExceededError' || e.code === 22){
@@ -1776,6 +1784,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       best = parseInt(localStorage.getItem('blocksrocks_personalBest') || '0');
       personalBest = best;
       bestAtGameStart = best;
+      stuckHintShown = false;
       if(bestEl) bestEl.textContent = best;
       paused = false;
       gameStartTime = Date.now();
@@ -1847,7 +1856,21 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       pulseBonusState.r = -1;
       pulseBonusState.c = -1;
       pulseBonusState.timer = 0;
-      scheduleNextPulseBonus();
+      // Ako je sačuvana igra imala aktivnu puls-bonus kocku, nastavi odbrojavanje
+      const savedPulse = saved && saved.pulse;
+      if(savedPulse && savedPulse.r >= 0
+          && grid && grid[savedPulse.r] && grid[savedPulse.r][savedPulse.c]
+          && grid[savedPulse.r][savedPulse.c].isPulseBonus){
+        pulseBonusState.r = savedPulse.r;
+        pulseBonusState.c = savedPulse.c;
+        pulseBonusState.timer = (typeof savedPulse.timer === 'number' && savedPulse.timer > 0)
+          ? savedPulse.timer
+          : (grid[savedPulse.r][savedPulse.c].pulseTimer || (GameCore.PULSE_BONUS_DURATION_SEC || 10));
+        grid[savedPulse.r][savedPulse.c].pulseTimer = pulseBonusState.timer;
+        startPulseCountdownInterval();
+      } else {
+        scheduleNextPulseBonus();
+      }
 
       updatePowerupUI();
       track('game_start', { from_save: !!saved });
@@ -2004,7 +2027,27 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       gameOverTimer = setTimeout(()=>{ gameOverTimer = null; handleGameOver(); }, delay);
       return true;
     }
+    // Nije (još) game over, ali trenutni komadi se nigde ne uklapaju i igrač ima
+    // čekić/zameru — daj jasan hint umesto tihog čekanja.
+    showStuckHintIfAny();
     return false;
+  }
+
+  /**
+   * Ako trenutni komadi u fioci nemaju nijedno mesto na tabli, a igrač i dalje ima
+   * čekić ili zameru, prikaži poruku (jednom po "zaglavljenoj sesiji").
+   */
+  function isStuckWithPowerups(){
+    if(gameOver || paused) return false;
+    if((hammersCount <= 0) && (rerollsCount <= 0)) return false;
+    return !GameCore.trayAnyPlacementOn(grid, SIZE, tray);
+  }
+  function showStuckHintIfAny(){
+    if(!isStuckWithPowerups() || stuckHintShown) return;
+    stuckHintShown = true;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    showMsg(t.msgStuckHint || '🧩 Komadi se ne uklapaju — iskoristi čekić ili zameru da nastaviš!', CONFIG.MSG_DURATION_TIP);
+    haptic('light');
   }
 
   function placePiece(piece, row, col, onCleared){
@@ -2107,22 +2150,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     startPulseBonusAt(chosen.r, chosen.c);
   }
 
-  function startPulseBonusAt(r, c){
-    const cellData = grid && grid[r] ? grid[r][c] : null;
-    if(!cellData) return;
-    cellData.isPulseBonus = true;
-    cellData.pulseTimer = GameCore.PULSE_BONUS_DURATION_SEC || 10;
-    pulseBonusState.r = r;
-    pulseBonusState.c = c;
-    pulseBonusState.timer = cellData.pulseTimer;
-
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    const pts = GameCore.PULSE_BONUS_POINTS || 250;
-    showMsg(t.msgPulseBonusSpawn || ('✨ Zlatna kocka pulsira! Razbij je za +' + pts + '!'), 3000);
-    haptic('medium');
-    sfxBonusGem();
-    render();
-
+  function startPulseCountdownInterval(){
     if(pulseBonusState.intervalId) clearInterval(pulseBonusState.intervalId);
     pulseBonusState.intervalId = setInterval(() => {
       if(paused || gameOver) return;
@@ -2144,6 +2172,26 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         endPulseBonus(false);
       }
     }, 1000);
+  }
+
+  function startPulseBonusAt(r, c){
+    const cellData = grid && grid[r] ? grid[r][c] : null;
+    if(!cellData) return;
+    cellData.isPulseBonus = true;
+    cellData.pulseTimer = GameCore.PULSE_BONUS_DURATION_SEC || 10;
+    pulseBonusState.r = r;
+    pulseBonusState.c = c;
+    pulseBonusState.timer = cellData.pulseTimer;
+
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const pts = GameCore.PULSE_BONUS_POINTS || 250;
+    const msgSpawn = t.msgPulseBonusSpawn || ('✨ Zlatna kocka pulsira! Razbij je za +' + pts + '!');
+    showMsg(String(msgSpawn).replace('%s', pts), 3000);
+    haptic('medium');
+    sfxBonusGem();
+    render();
+
+    startPulseCountdownInterval();
   }
 
   function endPulseBonus(rewardClaimed = false){
@@ -2174,7 +2222,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       triggerConfetti(25);
       haptic('success');
       const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-      showMsg(t.msgPulseBonusClaimed || ('🌟 +' + pts + ' BONUS OSVOJEN!'), 2500);
+      const msgClaimed = t.msgPulseBonusClaimed || ('🌟 +' + pts + ' BONUS OSVOJEN!');
+      showMsg(String(msgClaimed).replace('%s', pts), 2500);
       endPulseBonus(true);
       return true;
     }
@@ -2475,6 +2524,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     updatePowerupUI();
     showMsg(t.puHammerUsed || '💥 Kocka razbijena!', 1500);
     render();
+    stuckHintShown = false;
     clearLines(()=>{
       checkAndTriggerGameOver();
     });
