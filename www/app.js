@@ -3025,10 +3025,17 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   function moveGhost(x,y){
     const {rows, cols} = shapeSize(dragging.piece.shape);
-    const cellW = (cachedBoardGeometry || getCellGeometry()).cellW;
+    const geom = cachedBoardGeometry || getCellGeometry();
+    const cellW = geom.cellW;
+    const gap = geom.gap || 4;
     const raise = getGhostRaise(rows);
-    const gx = Math.round(x - cols*cellW/2);
-    const gy = Math.round(y - rows*cellW/2 - raise);
+    // Ukupna dimenzija ghost-a MORA da uključi gap između ćelija (grid-gap:4px),
+    // inače je ghost pomeren za (cols-1)*gap/2 px udesno i (rows-1)*gap/2 px nadole
+    // (pre ~4px za komade širine 3).
+    const totalW = cols*cellW + (cols-1)*gap;
+    const totalH = rows*cellW + (rows-1)*gap;
+    const gx = Math.round(x - totalW/2);
+    const gy = Math.round(y - totalH/2 - raise);
     ghostEl.style.transform = `translate3d(${gx}px, ${gy}px, 0) scale(1.05)`;
   }
 
