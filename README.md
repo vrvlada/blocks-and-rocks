@@ -70,8 +70,30 @@ Site Key je javni identifikator (kao i Firebase apiKey) — nije tajna.
 
 > ⚠️ **Redosled je kritičan:** ako uključiš Enforce PRE nego klijenti imaju Site Key, svi njihovi zahtevi biće odbijeni (`permission-denied`). Aplikacija ima offline queue, pa se rezultati ne gube — ali rang lista neće raditi dok se ne ažurira.
 
-### Android napomena
-Aplikacija i u Android WebView-u koristi **web** Firebase SDK, pa važi isti reCAPTCHA v3 provider (Play Integrity nije potreban). Zato `localhost` mora biti registrovan domen u reCAPTCHA konzoli (korak 1).
+### Android — Play Integrity (native) + debug provider
+
+Od verzije sa `@capacitor-firebase/app-check`, Android/iOS **više ne koriste reCAPTCHA** u WebView-u (koji je pravio `requestStorageAccess: Permission denied` šum). Umesto toga:
+
+- **Kod** (`www/app.js`) na nativnoj platformi koristi **Play Integrity** (Android) / **DeviceCheck/App Attest** (iOS) preko native plugina, a web SDK (Firestore/Auth) token dobija kroz `CustomProvider` most.
+- **Web** i dalje koristi **reCAPTCHA v3** (koraci 1–3 iznad važe za web).
+
+**Podešavanje Play Integrity (production):**
+1. Firebase Console → **App Check → Apps → Android app** (`com.blocksrocks.game`) → uključi **Play Integrity**.
+2. **Project Settings → Android app → SHA certificate fingerprints** → dodaj **SHA-256** keystore-a.
+   - Za release: SHA-256 release keystore-a (+ idealno upload na Play Console).
+3. Debug keystore SHA-256 (lokalni razvoj) dobijaš sa:
+   ```bash
+   keytool -list -v -keystore %USERPROFILE%\.android\debug.keystore -alias androiddebugkey -storepass android -keypass android
+   ```
+
+**Debug provider (lokalni razvoj, bez Play Integrity konfiguracije):**
+- U `www/app.js` je `const APP_CHECK_DEBUG = true;` → debug build koristi **App Check debug provider**.
+- Pri **prvom pokretanju** debug builda Firebase ispiše u logcat:
+  `Enter this debug secret into the allow list in the Firebase Console: XXXX-XXXX...`
+- Registruj taj token: Firebase Console → **App Check → Apps → Manage debug tokens → Add**.
+- ⚠️ **`APP_CHECK_DEBUG` postavi na `false` pre production/release builda** — debug provider dozvoljava neverifikovane uređaje.
+
+> Napomena: backend Firestore pravila trenutno **ne forsiraju** App Check (samo `request.auth`), pa igra radi i dok App Check nije potpuno podešen. Enforce uključiti tek po uputstvu u koraku 5.
 
 ---
 

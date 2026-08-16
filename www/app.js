@@ -31,6 +31,14 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
    * ═══════════════════════════════════════════════ */
   const appCheckSiteKey = '6LeFh4UtAAAAAHyBkW5vpD_iWNa1-uOFrCUe_T7D'; // reCAPTCHA v3 Site Key (javni — sme u kod)
 
+  // App Check DEBUG provider (samo Android/iOS native).
+  // true  → debug buildovi dobijaju token bez Play Integrity konfiguracije; pri prvom
+  //         pokretanju Firebase ispise debug token u logcat → registruj ga u
+  //         Firebase Console → App Check → Apps → Manage debug tokens.
+  // ⚠️  false → OBVEZNO za production/release (Play Store) build — debug provider
+  //         dozvoljava neverifikovane uređaje!
+  const APP_CHECK_DEBUG = true;
+
   /* ═══════════════════════════════════════════════
    *  FIREBASE INIT & GLOBAL APP STATE
    * ═══════════════════════════════════════════════ */
@@ -68,7 +76,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
               && typeof firebase.appCheck.CustomProvider === 'function') {
             // Nativni App Check (Play Integrity) + most za web SDK.
             if (typeof NativeAppCheck.initialize === 'function') {
-              NativeAppCheck.initialize({ isTokenAutoRefreshEnabled: true }).catch(()=>{});
+              NativeAppCheck.initialize({ debug: APP_CHECK_DEBUG, isTokenAutoRefreshEnabled: true }).catch(()=>{});
             }
             const nativeProvider = new firebase.appCheck.CustomProvider({
               getToken: async () => {
