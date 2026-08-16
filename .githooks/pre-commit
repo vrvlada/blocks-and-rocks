@@ -1,0 +1,12 @@
+#!/bin/sh
+# Pre-commit hook: pokreni testove pre commit-a. Commit se odbija ako padnu.
+echo "[pre-commit] Pokrecem testove (npm test)..."
+npm test >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "[pre-commit] ❌ Testovi NISU prosli. Commit je odbijen."
+  echo "[pre-commit] Pokreni 'npm test' da vidis greske, pa pokusaj ponovo."
+  exit 1
+fi
+echo "[pre-commit] ✅ Testovi prosli."
+exit 0

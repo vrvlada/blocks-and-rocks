@@ -1,0 +1,13 @@
+# <tip>(<opseg>): <kratak opis u imperativu, malim slovima, bez tačke>
+#
+# Tipovi: feat | fix | perf | refactor | test | docs | style | chore | build
+# Opseg (opciono): game | leaderboard | i18n | effects | audio | auth | android | save
+#
+# Primeri:
+#   feat(game): dodaj undo potez
+#   fix(render): ukloni bljesak kocaka nakon čišćenja reda
+#   test(gamecore): pokrij granit (3 HP) kao kamen
+#
+# Pre commit-a: npm test mora da prođe.
+# Ako si menjao www/: pokreni npm run copy (Android build se regeneriše).
+# Ne commit-uj tajne (users_auth.json, serviceAccount*.json) ni build izlaze.
