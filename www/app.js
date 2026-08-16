@@ -3340,8 +3340,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
    * ═══════════════════════════════════════════════ */
   async function shareScore(){
     const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    const shareTitle = "BLOCKS & ROCKS";
-    const shareText = '🧱💥 BLOCKS & ROCKS — ' + (t.sub || '') + '\n🏆 ' + (t.shareScored || 'Osvojio sam') + ' ' + (score || 0).toLocaleString() + ' ' + (t.sharePoints || 'poena') + '!\n' + (comboStreak > 1 ? ('🔥 ' + (t.shareBestCombo || 'Najveći kombo: x') + comboStreak + '\n') : '') + (t.shareChallenge || 'Možeš li me stići? 🚀');
+    const shareTitle = "Blocks and Rocks";
+    const shareText = '🧱💥 Blocks and Rocks — ' + (t.sub || '') + '\n🏆 ' + (t.shareScored || 'Osvojio sam') + ' ' + (score || 0).toLocaleString() + ' ' + (t.sharePoints || 'poena') + '!\n' + (comboStreak > 1 ? ('🔥 ' + (t.shareBestCombo || 'Najveći kombo: x') + comboStreak + '\n') : '') + (t.shareChallenge || 'Možeš li me stići? 🚀');
 
     if (navigator.share) {
       try {
