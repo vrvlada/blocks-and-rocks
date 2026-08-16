@@ -8,8 +8,15 @@
 let D = null;
 export function initEffects(deps){ D = deps; }
 
+/* Reduce Motion: kada je uključeno (ručni toggle ili OS signal) preskačemo
+ * jake vizuelne efekte (shake/confetti/iskre/partikle/shockwave). */
+function _reducedMotion(){
+  return !!(D && D.getReducedMotionEnabled && D.getReducedMotionEnabled());
+}
+
 /* ═══ SCREEN SHAKE ═══ */
 export function triggerScreenShake(intensity = 'light'){
+  if(_reducedMotion()) return;
   const target = document.getElementById('wrap') || (D && D.boardEl);
   if(!target) return;
   const cls = intensity === 'heavy' ? 'screen-shake-heavy' : 'screen-shake-light';
@@ -37,6 +44,7 @@ function initConfetti(){
 }
 
 export function triggerConfetti(count = 60){
+  if(_reducedMotion()) return;
   if (!confettiCanvas) return;
   if (!confettiCtx) initConfetti();
   if (!confettiCtx) return;
@@ -126,6 +134,7 @@ export function showScoreFloat(points){
 
 /* ═══ LINE-CLEAR / BOMB PARTICLES ═══ */
 export function spawnParticles(cellsToClear, colorOverride){
+  if(_reducedMotion()) return;
   const SIZE = D.SIZE;
   const rect = D.boardEl.getBoundingClientRect();
   const padding = 8, gap = 4;
@@ -171,6 +180,7 @@ export function spawnParticles(cellsToClear, colorOverride){
 }
 
 export function spawnCrackParticles(cellsToClear){
+  if(_reducedMotion()) return;
   const SIZE = D.SIZE;
   const rect = D.boardEl.getBoundingClientRect();
   const padding = 8, gap = 4;
@@ -222,6 +232,7 @@ export function spawnCrackParticles(cellsToClear){
 
 /* ═══ BOMB SHOCKWAVE ═══ */
 export function spawnShockwave(r,c){
+  if(_reducedMotion()) return;
   const SIZE = D.SIZE;
   const rect = D.boardEl.getBoundingClientRect();
   const padding = 8, gap = 4;
@@ -239,6 +250,7 @@ export function spawnShockwave(r,c){
 /* ═══ ICE SHATTER PARTICLES (Hazard block destruction) ═══ */
 export function spawnIceShatterParticles(r, c) {
   if (!D || !D.boardEl) return;
+  if(_reducedMotion()) return;
   const SIZE = D.SIZE;
   const rect = D.boardEl.getBoundingClientRect();
   const padding = 8, gap = 4;
@@ -280,6 +292,7 @@ export function spawnIceShatterParticles(r, c) {
 /* ═══ DRAG SPARK TRAIL ═══ */
 let sparkThrottle = 0;
 export function spawnSpark(x, y) {
+  if(_reducedMotion()) return;
   if (!D || !D.getParticleTrailEnabled || !D.getParticleTrailEnabled()) return;
   sparkThrottle++;
   if (sparkThrottle % 2 !== 0) return;

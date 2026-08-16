@@ -1648,6 +1648,19 @@
     * { scroll-behavior: auto !important; }
   }
 
+  /* ── Reduce Motion: ručni toggle (klasa na <body>) ogleda OS @media pravila ── */
+  body.reduced-motion *,
+  body.reduced-motion *::before,
+  body.reduced-motion *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  body.reduced-motion #confettiCanvas,
+  body.reduced-motion .drag-spark,
+  body.reduced-motion .shockwave,
+  body.reduced-motion .particle,
+  body.reduced-motion .debris { display: none !important; }
+
 
 
 

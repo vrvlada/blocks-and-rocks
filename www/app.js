@@ -467,6 +467,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     setText('i18n_hapticLabel', t.hapticLabel);
     setText('i18n_particleTitle', t.particleTitle);
     setText('i18n_particleDesc', t.particleDesc);
+    setText('i18n_reduceMotionTitle', t.reduceMotionTitle || '🧘 SMANJEN POKRET');
+    setText('i18n_reduceMotionDesc', t.reduceMotionDesc || 'Smanjuje animacije i efekte');
     setText('puHammerText', t.puHammerText || 'ČEKIĆ');
     setText('puRerollText', t.puRerollText || 'ZAMENI');
     setText('btnShareScore', t.btnShareScore || '📤 PODELI REZULTAT');
@@ -518,6 +520,15 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   let userDragOffsetMultiplier = parseFloat(localStorage.getItem('blocksrocks_dragOffset') || '2.0');
   let highContrastMode = localStorage.getItem('blocksrocks_highContrast') === '1';
   let particleTrailEnabled = localStorage.getItem('blocksrocks_particles') !== '0';
+  // Reduce Motion: '1'/'0' = eksplicitni izbor korisnika, null = prati OS signal
+  let reducedMotionOverride = (() => {
+    const v = localStorage.getItem('blocksrocks_reducedMotion');
+    return (v === '1' || v === '0') ? (v === '1') : null;
+  })();
+  function getReducedMotionEnabled(){
+    if (reducedMotionOverride !== null) return reducedMotionOverride;
+    try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch(e){ return false; }
+  }
 
   function updateDragOffsetSetting(val) {
     userDragOffsetMultiplier = parseFloat(val);
@@ -561,18 +572,31 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     if (toggle) toggle.checked = particleTrailEnabled;
   }
 
+  function updateReducedMotionSetting(enabled, explicit) {
+    if (explicit) {
+      reducedMotionOverride = !!enabled;
+      localStorage.setItem('blocksrocks_reducedMotion', reducedMotionOverride ? '1' : '0');
+    }
+    const on = getReducedMotionEnabled();
+    document.body.classList.toggle('reduced-motion', on);
+    const toggle = document.getElementById('reducedMotionToggle');
+    if (toggle) toggle.checked = on;
+  }
+
   function initSettingsUI() {
     applyLanguage(currentLang);
     updateDragOffsetSetting(userDragOffsetMultiplier);
     updateHapticSetting(getHapticMode());
     updateHighContrastSetting(highContrastMode);
     updateParticleSetting(particleTrailEnabled);
+    updateReducedMotionSetting(getReducedMotionEnabled(), false);
     renderCareerStats();
   }
 
   // Initialize Language and High Contrast on load right away
   applyLanguage(currentLang);
   updateHighContrastSetting(highContrastMode);
+  updateReducedMotionSetting(getReducedMotionEnabled(), false);
 
   // Language selector dropdown change
   const langSelect = document.getElementById('langSelect');
@@ -622,6 +646,25 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       haptic('light');
     });
   }
+
+  // Reduce Motion toggle switch
+  const rmToggle = document.getElementById('reducedMotionToggle');
+  if (rmToggle) {
+    rmToggle.addEventListener('change', (e) => {
+      updateReducedMotionSetting(e.target.checked, true);
+      haptic('light');
+    });
+  }
+
+  // Prati promenu OS podešavanja (prefers-reduced-motion) ako korisnik nije eksplicitno izabrao
+  try {
+    const _rmMq = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (_rmMq && _rmMq.addEventListener) {
+      _rmMq.addEventListener('change', () => {
+        if (reducedMotionOverride === null) updateReducedMotionSetting(getReducedMotionEnabled(), false);
+      });
+    }
+  } catch(e){}
 
   /* ═══════════════════════════════════════════════
    *  GOOGLE ACCOUNT LINKING & CLOUD SYNC
@@ -1522,7 +1565,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   initAudio({ getT: () => TRANSLATIONS[currentLang] || TRANSLATIONS.sr });
   initEffects({ CONFIG, SIZE, boardEl, scoreEl,
                 getGrid: () => grid,
-                getParticleTrailEnabled: () => particleTrailEnabled });
+                getParticleTrailEnabled: () => particleTrailEnabled,
+                getReducedMotionEnabled });
   initLeaderboard({
     haptic, debounceAction, CONFIG,
     countryFlag, getFullCountryName, guessCountryFromDevice,
