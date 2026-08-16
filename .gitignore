@@ -17,6 +17,9 @@ firestore-debug.log
 # Firebase Auth dump/eksport korisnika — sadrži identifikacione podatke, NE komitovati
 users_auth.json
 
+# Firebase CLI keš
+.firebase/
+
 # OS / editor otpad
 .DS_Store
 Thumbs.db
