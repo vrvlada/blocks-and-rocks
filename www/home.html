@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blocks & Rocks — Zvanična Prezentacija i Pravila Igre</title>
+  <meta name="description" content="Saznaj sva pravila, trikove, prepreke i power-upove u igri Blocks and Rocks. Postavljaj blokove, razbijaj kamenje, detoniraj bombe i osvoji svetsku rang listu!">
+  <meta property="og:title" content="Blocks & Rocks — Vodič i Pravila Igre">
+  <meta property="og:description" content="Moderna statička slagalica sa kamenjem, bombama, power-upovima i globalnim tabelama!">
+  <meta property="og:image" content="assets/hero_art.jpg">
+  <link rel="icon" type="image/png" sizes="64x64" href="assets/favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+  <style>
+    :root {
+      --bg-dark: #080b11;
+      --bg-surface: #101622;
+      --bg-card: #161f30;
+      --bg-card-hover: #1c283f;
+      --accent-cyan: #00e5ff;
+      --accent-cyan-glow: rgba(0, 229, 255, 0.25);
+      --accent-gold: #ffd700;
+      --accent-gold-glow: rgba(255, 215, 0, 0.25);
+      --accent-purple: #c084fc;
+      --accent-orange: #ff7b00;
+      --accent-red: #ff3b5c;
+      --accent-green: #10b981;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border-light: rgba(255, 255, 255, 0.1);
+      --border-accent: rgba(0, 229, 255, 0.3);
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: var(--font-family);
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Background Ambient Glows */
+    .ambient-glow {
+      position: fixed;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(0, 229, 255, 0.12) 0%, rgba(192, 132, 252, 0.08) 40%, transparent 70%);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 20px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Navigation Bar */
+    header.navbar {
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      background: rgba(8, 11, 17, 0.85);
+      border-bottom: 1px solid var(--border-light);
+      z-index: 100;
+      padding: 14px 0;
+    }
+
+    .nav-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+
+    .brand-logo .logo-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      box-shadow: 0 0 15px var(--accent-cyan-glow);
+    }
+
+    .brand-logo .logo-text {
+      font-size: 1.35rem;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      color: #ffffff;
+    }
+
+    .brand-logo .logo-text span {
+      color: var(--accent-cyan);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.92rem;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: var(--accent-cyan);
+    }
+
+    .btn-play-header {
+      background: linear-gradient(135deg, #00e5ff, #0099ff);
+      color: #040814 !important;
+      font-weight: 800 !important;
+      padding: 8px 18px;
+      border-radius: 9999px;
+      box-shadow: 0 4px 15px rgba(0, 229, 255, 0.35);
+      transition: transform 0.2s, box-shadow 0.2s !important;
+    }
+
+    .btn-play-header:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 229, 255, 0.55);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 60px 0 50px 0;
+      text-align: center;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0, 229, 255, 0.1);
+      border: 1px solid var(--accent-cyan);
+      color: var(--accent-cyan);
+      font-size: 0.85rem;
+      font-weight: 700;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      margin-bottom: 24px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .hero h1 {
+      font-size: 3rem;
+      line-height: 1.15;
+      font-weight: 900;
+      margin-bottom: 18px;
+      background: linear-gradient(135deg, #ffffff 30%, #a5f3fc 70%, #00e5ff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p.lead {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      max-width: 720px;
+      margin: 0 auto 32px auto;
+    }
+
+    .hero-cta {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 44px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, #00e5ff 0%, #0077ff 100%);
+      color: #040814;
+      font-size: 1.05rem;
+      font-weight: 800;
+      padding: 14px 30px;
+      border-radius: 12px;
+      text-decoration: none;
+      box-shadow: 0 8px 25px rgba(0, 229, 255, 0.35);
+      transition: all 0.25s;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-3px) scale(1.02);
+      box-shadow: 0 12px 30px rgba(0, 229, 255, 0.55);
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-surface);
+      color: #ffffff;
+      font-size: 1.05rem;
+      font-weight: 700;
+      padding: 14px 28px;
+      border-radius: 12px;
+      border: 1px solid var(--border-light);
+      text-decoration: none;
+      transition: all 0.25s;
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-card);
+      border-color: var(--accent-cyan);
+      transform: translateY(-2px);
+    }
+
+    .hero-banner-frame {
+      position: relative;
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid var(--border-accent);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 40px rgba(0, 229, 255, 0.15);
+      max-width: 980px;
+      margin: 0 auto;
+    }
+
+    .hero-banner-frame img {
+      width: 100%;
+      height: auto;
+      display: block;
+      transition: transform 0.4s;
+    }
+
+    .hero-banner-frame:hover img {
+      transform: scale(1.015);
+    }
+
+    /* Section Styling */
+    section {
+      padding: 70px 0;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .section-title-wrap {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .section-tag {
+      font-size: 0.82rem;
+      color: var(--accent-cyan);
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 8px;
+    }
+
+    .section-title {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: #ffffff;
+    }
+
+    .section-desc {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      max-width: 620px;
+      margin: 8px auto 0 auto;
+    }
+
+    /* How to Play - Steps Grid */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 22px;
+    }
+
+    .step-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: 16px;
+      padding: 26px 22px;
+      position: relative;
+      transition: all 0.3s;
+    }
+
+    .step-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--accent-cyan);
+      transform: translateY(-5px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    .step-num {
+      width: 36px;
+      height: 36px;
+      background: var(--accent-cyan-glow);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      font-weight: 900;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+      font-size: 1.1rem;
+    }
+
+    .step-card h3 {
+      font-size: 1.25rem;
+      margin-bottom: 10px;
+      color: #ffffff;
+    }
+
+    .step-card p {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    /* Hazards & Mechanics Split */
+    .mechanics-showcase {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 36px;
+      align-items: center;
+    }
+
+    .mechanics-img-wrap {
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--border-light);
+      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    .mechanics-img-wrap img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .hazard-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .hazard-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      transition: all 0.2s;
+    }
+
+    .hazard-item:hover {
+      border-color: rgba(255, 255, 255, 0.25);
+      background: var(--bg-card-hover);
+    }
+
+    .hazard-icon {
+      font-size: 2rem;
+      line-height: 1;
+      flex-shrink: 0;
+      padding: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+    }
+
+    .hazard-info h4 {
+      font-size: 1.1rem;
+      color: #ffffff;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hazard-badge {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .badge-hp2 { background: rgba(255, 123, 0, 0.2); color: #ff7b00; border: 1px solid #ff7b00; }
+    .badge-hp3 { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid #94a3b8; }
+    .badge-bomb { background: rgba(255, 59, 92, 0.2); color: #ff3b5c; border: 1px solid #ff3b5c; }
+    .badge-pulse { background: rgba(255, 215, 0, 0.2); color: #ffd700; border: 1px solid #ffd700; }
+
+    .hazard-info p {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    /* Power-ups Section */
+    .powerups-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .powerup-card {
+      background: var(--bg-card);
+      border-radius: 16px;
+      border: 1px solid var(--border-light);
+      padding: 26px;
+      display: flex;
+      gap: 18px;
+      align-items: flex-start;
+      transition: all 0.3s;
+    }
+
+    .powerup-card:hover {
+      border-color: var(--accent-gold);
+      transform: translateY(-4px);
+      box-shadow: 0 10px 25px rgba(255, 215, 0, 0.15);
+    }
+
+    .powerup-icon-box {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: var(--accent-gold-glow);
+      border: 1px solid var(--accent-gold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.7rem;
+      flex-shrink: 0;
+    }
+
+    .powerup-card h3 {
+      font-size: 1.2rem;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }
+
+    .powerup-card p {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+    }
+
+    /* Game Modes */
+    .modes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .mode-card {
+      background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-surface) 100%);
+      border: 1px solid var(--border-light);
+      border-radius: 18px;
+      padding: 30px 24px;
+      text-align: center;
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .mode-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--mode-color, var(--accent-cyan));
+    }
+
+    .mode-card:hover {
+      transform: translateY(-6px);
+      border-color: var(--mode-color, var(--accent-cyan));
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6);
+    }
+
+    .mode-card .mode-icon {
+      font-size: 2.8rem;
+      margin-bottom: 14px;
+    }
+
+    .mode-card h3 {
+      font-size: 1.35rem;
+      color: #ffffff;
+      margin-bottom: 10px;
+    }
+
+    .mode-card p {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* FAQ */
+    .faq-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+      gap: 20px;
+    }
+
+    .faq-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: 14px;
+      padding: 22px 24px;
+    }
+
+    .faq-card h4 {
+      color: var(--accent-cyan);
+      font-size: 1.05rem;
+      margin-bottom: 8px;
+    }
+
+    .faq-card p {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+    }
+
+    /* CTA Section */
+    .cta-banner {
+      background: radial-gradient(circle at center, rgba(0, 229, 255, 0.15) 0%, rgba(16, 22, 34, 0.95) 70%);
+      border: 1px solid var(--border-accent);
+      border-radius: 24px;
+      padding: 50px 30px;
+      text-align: center;
+      margin: 60px auto 40px auto;
+      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    .cta-banner h2 {
+      font-size: 2.4rem;
+      font-weight: 900;
+      margin-bottom: 14px;
+      color: #ffffff;
+    }
+
+    .cta-banner p {
+      font-size: 1.1rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto 28px auto;
+    }
+
+    /* Footer */
+    footer {
+      background: #05070a;
+      border-top: 1px solid var(--border-light);
+      padding: 40px 0 30px 0;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+    }
+
+    .footer-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 18px;
+      list-style: none;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .footer-links a:hover {
+      color: var(--accent-cyan);
+      text-decoration: underline;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2.2rem; }
+      .mechanics-showcase { grid-template-columns: 1fr; }
+      .faq-grid { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+      .footer-inner { flex-direction: column; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ambient-glow"></div>
+
+  <!-- Navbar -->
+  <header class="navbar">
+    <div class="container nav-inner">
+      <a href="home.html" class="brand-logo">
+        <img src="assets/icon-192.png" alt="Blocks and Rocks Logo" class="logo-icon">
+        <span class="logo-text">BLOCKS <span>&</span> ROCKS</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="#pravila">Pravila</a></li>
+        <li><a href="#prepreke">Prepreke</a></li>
+        <li><a href="#powerup">Moći</a></li>
+        <li><a href="#modovi">Modovi</a></li>
+        <li><a href="privacy.html">Privacy</a></li>
+        <li><a href="terms.html">Terms</a></li>
+        <li><a href="index.html" class="btn-play-header">🎮 Igraj Igru</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <div class="container hero">
+    <div class="hero-badge">⚡ Nova Generacija Statičkih Slagalica</div>
+    <h1>Strateška Slagalica sa Kamenjem i Eksplozijama!</h1>
+    <p class="lead">Postavljaj šarene blokove na 8x8 mrežu, razbijaj tvrdokorno kamenje, deaktiviraj vremenske bombe i takmiči se na svetskoj rang listi.</p>
+    
+    <div class="hero-cta">
+      <a href="index.html" class="btn-primary">▶ Igraj Odmah u Pregledaču</a>
+      <a href="#pravila" class="btn-secondary">📖 Nauči Pravila Igre</a>
+    </div>
+
+    <div class="hero-banner-frame">
+      <img src="assets/hero_art.jpg" alt="Blocks and Rocks Promotivni Baner" loading="lazy">
+    </div>
+  </div>
+
+  <!-- How to Play Section -->
+  <section id="pravila">
+    <div class="container">
+      <div class="section-title-wrap">
+        <div class="section-tag">OSNOVE GEJMPLEJA</div>
+        <h2 class="section-title">Kako se igra?</h2>
+        <p class="section-desc">Pravila su jednostavna za učenje, ali pružaju beskrajnu dubinu za taktičko planiranje i rekordne skorove.</p>
+      </div>
+
+      <div class="steps-grid">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <h3>Prevuci Komad</h3>
+          <p>U svakom krugu dobijaš 3 unikatna geometrijska oblika. Prevuci ih prstom ili mišem na slobodna polja 8x8 table. Klik na komad pre postavljanja ga rotira za 90°.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <h3>Čisti Pune Linije</h3>
+          <p>Kada popuniš ceo red ili kolonu (8 kockica), ta linija momentalno nestaje, oslobađa dragoceni prostor i donosi osnovne poene.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <h3>Povezuj Komboe 🔥</h3>
+          <p>Čišćenjem linija u uzastopnim potezima pokrećeš Kombo niz (x2, x3, x4...). Višestruki komboi eksponencijalno uvećavaju tvoj konačni skor!</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <h3>Izbegavaj Game Over</h3>
+          <p>Igra se završava kada nijedan od ponuđena 3 komada ne može da stane na tablu. Iskoristi čekić ili zamenu komada na vreme kako bi spasao partiju!</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Hazards & Special Mechanics -->
+  <section id="prepreke">
+    <div class="container">
+      <div class="section-title-wrap">
+        <div class="section-tag">DINAMIČKI IZAZOVI</div>
+        <h2 class="section-title">Prepreke i Specijalne Kocke</h2>
+        <p class="section-desc">Za razliku od običnih slagalica, Blocks and Rocks donosi opasnosti koje zahtevaju pametno taktiziranje.</p>
+      </div>
+
+      <div class="mechanics-showcase">
+        <div class="mechanics-img-wrap">
+          <img src="assets/gameplay_assets.jpg" alt="Prepreke i Moći u igri" loading="lazy">
+        </div>
+
+        <div class="hazard-list">
+          <div class="hazard-item">
+            <div class="hazard-icon">🪨</div>
+            <div class="hazard-info">
+              <h4>Kamen (Stone) <span class="hazard-badge badge-hp2">2 HP</span></h4>
+              <p>Pojavljuje se periodično na tabli. Prvo čišćenje linije stvara pukotine na kamenu, a tek drugo ga potpuno uništava!</p>
+            </div>
+          </div>
+
+          <div class="hazard-item">
+            <div class="hazard-icon">🗿</div>
+            <div class="hazard-info">
+              <h4>Granit (Granite) <span class="hazard-badge badge-hp3">3 HP</span></h4>
+              <p>Ekstremno otporna stena koja se stvara na višim nivoima. Zahteva čak tri prolaska linija ili direktan udarac čekićem.</p>
+            </div>
+          </div>
+
+          <div class="hazard-item">
+            <div class="hazard-icon">💣</div>
+            <div class="hazard-info">
+              <h4>Taktizirajuća Bomba <span class="hazard-badge badge-bomb">3x3 EKSPLOZIJA</span></h4>
+              <p>Bomba sa tajmerom koji odbrojava svaki tvoj potez. Ako očistiš liniju sa bombom — ili ako tajmer istekne — bomba eksplodira i briše 3x3 polja oko sebe!</p>
+            </div>
+          </div>
+
+          <div class="hazard-item">
+            <div class="hazard-icon">⚡</div>
+            <div class="hazard-info">
+              <h4>Pulsni Bonus <span class="hazard-badge badge-pulse">+250 POENA</span></h4>
+              <p>Vremenski ograničena energetska kocka. Ako je očistiš u roku od 10 sekundi dok pulsira, dobijaš instant masivni bonus poena!</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Power-Ups Section -->
+  <section id="powerup">
+    <div class="container">
+      <div class="section-title-wrap">
+        <div class="section-tag">TAKTIČKA POMOĆ</div>
+        <h2 class="section-title">Moćni Power-Upovi</h2>
+        <p class="section-desc">Osvoji dodatne moći prelaskom bodovnih pragova tokom partije.</p>
+      </div>
+
+      <div class="powerups-grid">
+        <div class="powerup-card">
+          <div class="powerup-icon-box">🔨</div>
+          <div>
+            <h3>Čekić (Smasher)</h3>
+            <p>Aktiviraj čekić i klikni na bilo koju kocku na tabli da je momentalno razbiješ. Savršeno za uklanjanje granita ili oslobađanje mesta za veliki komad.</p>
+          </div>
+        </div>
+
+        <div class="powerup-card">
+          <div class="powerup-icon-box">🎲</div>
+          <div>
+            <h3>Zamena Komada (Reroll)</h3>
+            <p>Nezgodan raspored u fioci? Klikni na kockicu za zamenu i odmah dobij 3 potpuno nova nasumična oblika bez gubitka poteza.</p>
+          </div>
+        </div>
+
+        <div class="powerup-card">
+          <div class="powerup-icon-box">🔄</div>
+          <div>
+            <h3>Rotacija za 90°</h3>
+            <p>Svaki komad u poslužavniku možeš rotirati pre nego što ga postaviš na tablu, što ti pruža maksimalnu fleksibilnost u svakom potezu.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Game Modes Section -->
+  <section id="modovi">
+    <div class="container">
+      <div class="section-title-wrap">
+        <div class="section-tag">RAZNOLIKOST IGRANJA</div>
+        <h2 class="section-title">Modovi Igre</h2>
+        <p class="section-desc">Izaberi tempo koji najviše odgovara tvom raspoloženju.</p>
+      </div>
+
+      <div class="modes-grid">
+        <div class="mode-card" style="--mode-color: #00e5ff;">
+          <div class="mode-icon">👑</div>
+          <h3>Klasični Mod</h3>
+          <p>Čisto strateško igranje bez vremenskog ograničenja. Idealan mod za opuštanje, duboko planiranje i jurenje ličnog rekorda.</p>
+        </div>
+
+        <div class="mode-card" style="--mode-color: #ff3b5c;">
+          <div class="mode-icon">💀</div>
+          <h3>Survival Mod</h3>
+          <p>Nemilosrdan tempo sa češćim pojavljivanjem kamenja, granita i bombi. Zahteva vrhunsku kontrolu resursa i brzo razmišljanje.</p>
+        </div>
+
+        <div class="mode-card" style="--mode-color: #ffd700;">
+          <div class="mode-icon">⏳</div>
+          <h3>Time Attack</h3>
+          <p>Trka protiv štoperice! Svaka očišćena linija i eksplozija dodaje dragocene sekunde na tvoj tajmer. Koliko dugo možeš izdržati?</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ Section -->
+  <section>
+    <div class="container">
+      <div class="section-title-wrap">
+        <div class="section-tag">PITANJA I ODGOVORI</div>
+        <h2 class="section-title">Često Postavljana Pitanja</h2>
+      </div>
+
+      <div class="faq-grid">
+        <div class="faq-card">
+          <h4>Da li je igra potpuno besplatna?</h4>
+          <p>Da! Blocks and Rocks je 100% besplatan za igranje, bez skrivenih troškova i bez nametljivih reklama tokom partije.</p>
+        </div>
+
+        <div class="faq-card">
+          <h4>Mogu li da igram bez interneta (offline)?</h4>
+          <p>Apsolutno. Cela igra funkcioniše besprekorno i u potpunosti offline. Kada se ponovo povežeš, tvoji rekordi se mogu sinhronizovati.</p>
+        </div>
+
+        <div class="faq-card">
+          <h4>Kako funkcioniše rang lista?</h4>
+          <p>Nakon povezivanja sa tvojim Google nalogom, tvoj najbolji skor se automatski upisuje na svetsku i nacionalnu tabelu rezultata.</p>
+        </div>
+
+        <div class="faq-card">
+          <h4>Šta su bedževi i dostignuća?</h4>
+          <p>Igra sadrži preko 20 skrivenih trofeja i bedževa (npr. Destroyer serija, Bomb Defuser, Granite Crusher) koje otključavaš postizanjem specijalnih ciljeva.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Final CTA Banner -->
+  <div class="container">
+    <div class="cta-banner">
+      <h2>Spreman si da testiraš svoje veštine?</h2>
+      <p>Isprobaj Blocks & Rocks odmah u svom browseru ili na Android uređaju i postavi novi svetski rekord!</p>
+      <a href="index.html" class="btn-primary" style="font-size: 1.15rem; padding: 16px 36px;">🚀 Pokreni Igru Sada</a>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container footer-inner">
+      <div>
+        <strong>Blocks and Rocks</strong> &copy; 2026. Sva prava zadržana.
+      </div>
+      <ul class="footer-links">
+        <li><a href="home.html">Početna</a></li>
+        <li><a href="privacy.html">Politika Privatnosti</a></li>
+        <li><a href="terms.html">Uslovi Korišćenja</a></li>
+        <li><a href="https://github.com/vrvlada/blocks-and-rocks" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </footer>
+
+</body>
+</html>
