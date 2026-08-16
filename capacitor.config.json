@@ -1,5 +1,12 @@
 {
   "appId": "com.blocksrocks.game",
   "appName": "Blocks and Rocks",
-  "webDir": "www"
+  "webDir": "www",
+  "plugins": {
+    "GoogleAuth": {
+      "scopes": ["profile", "email"],
+      "serverClientId": "556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com",
+      "forceCodeForRefreshToken": true
+    }
+  }
 }

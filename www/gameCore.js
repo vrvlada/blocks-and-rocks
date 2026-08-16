@@ -41,6 +41,17 @@
     [[0, 0], [1, 0], [1, 1], [2, 1]],
     [[0, 1], [1, 0], [1, 1], [2, 0]],
     [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]],
+    // Dijagonalni oblici (2 kocke ukoso)
+    [[0, 0], [1, 1]],
+    [[0, 1], [1, 0]],
+    // Dijagonalni oblici (3 kocke ukoso)
+    [[0, 0], [1, 1], [2, 2]],
+    [[0, 2], [1, 1], [2, 0]],
+    // T-oblici (T-shapes)
+    [[0, 0], [1, 0], [2, 0], [1, 1]],
+    [[0, 1], [1, 1], [2, 1], [1, 0]],
+    [[0, 0], [0, 1], [0, 2], [1, 1]],
+    [[1, 0], [1, 1], [1, 2], [0, 1]],
   ];
 
   /** Prazna tabla size×size (svaka ćelija je `null`). */
@@ -80,14 +91,61 @@
   }
 
   /**
-   * Da li se makar jedan od oblika u traj-`tray` (niz oblika, mogu biti i `null`)
-   * može postaviti na tablu `grid`. Vraća `true` ako POSTOJI placement.
+   * Da li se oblik `shape` u BILO KOJOJ od svojih 4 rotacije (0°, 90°, 180°, 270°)
+   * može postaviti bilo gde na tabli `grid`.
    */
-  function trayAnyPlacementOn(grid, size, tray) {
-    for (const p of tray) {
-      if (p && p.shape && anyPlacementOn(grid, size, p.shape)) return true;
+  function pieceAnyPlacementOn(grid, size, shape) {
+    if (!shape || !shape.length) return false;
+    let current = shape;
+    for (let rot = 0; rot < 4; rot++) {
+      if (anyPlacementOn(grid, size, current)) return true;
+      current = rotateShapeCW(current);
     }
     return false;
+  }
+
+  /**
+   * Da li se makar jedan od oblika u fioci-`tray` (niz oblika, mogu biti i `null`),
+   * uzimajući u obzir sve moguće rotacije (0°, 90°, 180°, 270°), može postaviti na tablu `grid`.
+   * Vraća `true` ako POSTOJI placement.
+   */
+  function trayAnyPlacementOn(grid, size, tray) {
+    if (!tray || !Array.isArray(tray)) return false;
+    for (const p of tray) {
+      if (p && p.shape && pieceAnyPlacementOn(grid, size, p.shape)) return true;
+    }
+    return false;
+  }
+
+  /** Da li na tabli `grid` postoji ijedna popunjena ćelija (blok/stena/bomba). */
+  function hasOccupiedCellsOn(grid, size) {
+    size = size || SIZE;
+    if (!grid) return false;
+    for (let r = 0; r < size; r++) {
+      if (!grid[r]) continue;
+      for (let c = 0; c < size; c++) {
+        if (grid[r][c]) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Proverava da li igrač ima na raspolaganju bilo koji mogući potez:
+   * 1. Makar jedna kocka iz fioke se može postaviti u BILO KOJOJ rotaciji.
+   * 2. Korisnik ima preostale čekiće (hammersCount > 0) i na tabli ima popunjenih kocki koje može razbiti.
+   * 3. Korisnik ima zamenu (rerollsCount > 0) kojom može zameniti komade u fioci.
+   */
+  function hasAvailableMovesOn(grid, size, tray, hammersCount, rerollsCount) {
+    if (trayAnyPlacementOn(grid, size, tray)) return true;
+    if ((Number(hammersCount) || 0) > 0 && hasOccupiedCellsOn(grid, size)) return true;
+    if ((Number(rerollsCount) || 0) > 0) return true;
+    return false;
+  }
+
+  /** Vraća true samo kada igrač nema više nijedan mogući potez. */
+  function isGameOverOn(grid, size, tray, hammersCount, rerollsCount) {
+    return !hasAvailableMovesOn(grid, size, tray, hammersCount, rerollsCount);
   }
 
   /** Sortira listu rezultata ({score:number}) opadajuće i vraća top `n`. */
@@ -195,8 +253,8 @@
    */
   function calculateComboScore(linesCleared, removedCount, crackedCount, comboStreak) {
     if (!linesCleared || linesCleared <= 0) return 0;
-    const LINE_BONUS = [0, 100, 300, 600, 1000];
-    const lineBonus = LINE_BONUS[Math.min(linesCleared, 4)] || 1000;
+    const LINE_BONUS = [0, 100, 300, 750, 1500];
+    const lineBonus = LINE_BONUS[Math.min(linesCleared, 4)] || 1500;
     const base = (removedCount || 0) * 2 + (crackedCount || 0) * 1 + lineBonus;
     const streak = Math.max(1, comboStreak || 1);
     const multiplier = 1 + (streak - 1) * 0.4;
@@ -321,10 +379,218 @@
     return newlyUnlocked;
   }
 
-  const PULSE_BONUS_POINTS = 100;
+  const PULSE_BONUS_POINTS = 250;
   const PULSE_BONUS_DURATION_SEC = 10;
-  const PULSE_BONUS_MIN_INTERVAL_MS = 120000; // 2 min
-  const PULSE_BONUS_MAX_INTERVAL_MS = 180000; // 3 min
+  const PULSE_BONUS_MIN_INTERVAL_MS = 100000; // 100s
+  const PULSE_BONUS_MAX_INTERVAL_MS = 150000; // 150s
+
+  const FIBONACCI_MILESTONES = [1000, 2000, 3000, 5000, 8000, 13000, 21000, 34000, 55000, 89000, 144000];
+  const MILESTONE_HAZARDS = [10000, 25000, 50000, 100000];
+  const ICE_HAZARD_BONUS_POINTS = 500;
+
+  /**
+   * Izračunava na koliko figura se stvara kamen na osnovu Fibonačijevih zona skora:
+   * < 2.000: na svakih 10 figura
+   * 2.000 - 2.999: na svakih 9 figura
+   * 3.000 - 4.999: na svakih 8 figura
+   * 5.000 - 7.999: na svakih 7 figura
+   * 8.000 - 12.999: na svakih 6 figura
+   * 13.000 - 20.999: na svakih 5 figura
+   * 21.000 - 33.999: na svakih 4 figure
+   * >= 34.000: na svakih 3 figure
+   */
+  function getRockInterval(score) {
+    const s = Number(score) || 0;
+    if (s < 2000) return 10;
+    if (s < 3000) return 9;
+    if (s < 5000) return 8;
+    if (s < 8000) return 7;
+    if (s < 13000) return 6;
+    if (s < 21000) return 5;
+    if (s < 34000) return 4;
+    return 3;
+  }
+
+  /**
+   * Određuje maksimalni HP za kamen po Fibonačijevim zonama:
+   * < 5.000: 2 HP (običan kamen)
+   * 5.000 - 7.999: 15% šanse za 3 HP Granit
+   * 8.000 - 12.999: 30% šanse za 3 HP Granit
+   * 13.000 - 20.999: 40% šanse za 3 HP Granit
+   * 21.000 - 33.999: 50% šanse za 3 HP Granit
+   * >= 34.000: 60% šanse za 3 HP Granit
+   */
+  function getRockMaxHp(score, rng = Math.random) {
+    const s = Number(score) || 0;
+    if (s >= 34000) return rng() < 0.60 ? 3 : 2;
+    if (s >= 21000) return rng() < 0.50 ? 3 : 2;
+    if (s >= 13000) return rng() < 0.40 ? 3 : 2;
+    if (s >= 8000) return rng() < 0.30 ? 3 : 2;
+    if (s >= 5000) return rng() < 0.15 ? 3 : 2;
+    return 2;
+  }
+
+  /**
+   * Vraća indeks dostignutog Fibonačijevog praga (0 za 1k, 1 za 2k, 2 za 3k, 3 za 5k, 4 za 8k, ...)
+   * ili -1 ako je skor manji od 1.000.
+   */
+  function getFibonacciRockMilestone(score) {
+    const s = Number(score) || 0;
+    let reached = -1;
+    for (let i = 0; i < FIBONACCI_MILESTONES.length; i++) {
+      if (s >= FIBONACCI_MILESTONES[i]) reached = i;
+    }
+    return reached;
+  }
+
+  /**
+   * Određuje raspored kamenja koji pada na tablu na Fibonačijevom pragu:
+   * Vraća niz definicija za kamenje, npr. [{ maxHp: 2 }, { maxHp: 3 }]
+   */
+  function getFibonacciMilestoneSpawnConfig(milestoneIndex) {
+    if (milestoneIndex < 0) return [];
+    if (milestoneIndex <= 3) {
+      // 1k, 2k, 3k, 5k -> 1 običan kamen (2 HP)
+      return [{ maxHp: 2 }];
+    }
+    if (milestoneIndex <= 5) {
+      // 8k, 13k -> 1 granitni kamen (3 HP)
+      return [{ maxHp: 3 }];
+    }
+    if (milestoneIndex === 6) {
+      // 21k -> 2 kamena (1 granit 3 HP + 1 običan 2 HP)
+      return [{ maxHp: 3 }, { maxHp: 2 }];
+    }
+    if (milestoneIndex === 7) {
+      // 34k -> 2 granita (3 HP)
+      return [{ maxHp: 3 }, { maxHp: 3 }];
+    }
+    if (milestoneIndex === 8) {
+      // 55k -> 3 kamena (2 granita + 1 običan)
+      return [{ maxHp: 3 }, { maxHp: 3 }, { maxHp: 2 }];
+    }
+    if (milestoneIndex === 9) {
+      // 89k -> 3 granita (3 HP)
+      return [{ maxHp: 3 }, { maxHp: 3 }, { maxHp: 3 }];
+    }
+    // 144k+ -> 4 granita (3 HP)
+    return [{ maxHp: 3 }, { maxHp: 3 }, { maxHp: 3 }, { maxHp: 3 }];
+  }
+
+  /**
+   * Izračunava broj figura do sledeće bombe:
+   * < 7.000: 15-20 figura
+   * 7.000 - 19.999: 12-16 figura
+   * >= 20.000: 10-13 figura
+   */
+  function getBombInterval(score, rng = Math.random) {
+    const s = Number(score) || 0;
+    if (s < 7000) {
+      return 15 + Math.floor(rng() * 6); // 15 - 20
+    }
+    if (s < 20000) {
+      return 12 + Math.floor(rng() * 5); // 12 - 16
+    }
+    return 10 + Math.floor(rng() * 4); // 10 - 13
+  }
+
+  /**
+   * Određuje početni tajmer za bombu (broj poteza):
+   * < 7.000: 3 poteza
+   * 7.000 - 19.999: 30% šanse za brzu bombu (2 poteza), inače 3
+   * >= 20.000: 50% šanse za brzu bombu (2 poteza), inače 3
+   */
+  function getBombInitialTimer(score, rng = Math.random) {
+    const s = Number(score) || 0;
+    if (s >= 20000 && rng() < 0.50) return 2;
+    if (s >= 7000 && rng() < 0.30) return 2;
+    return 3;
+  }
+
+  /**
+   * Vraća najveći indeks dostignute prekretnice (0 za 10k, 1 za 25k, 2 za 50k, 3 za 100k, ili -1 ako nije dostignuta).
+   */
+  function getMilestoneHazardLevel(score) {
+    const s = Number(score) || 0;
+    let reached = -1;
+    for (let i = 0; i < MILESTONE_HAZARDS.length; i++) {
+      if (s >= MILESTONE_HAZARDS[i]) reached = i;
+    }
+    return reached;
+  }
+
+  /**
+   * Pronalazi nasumičnu slobodnu ćeliju na tabli za postavljanje hazard/ice bloka.
+   * Vraća { r, c } ili null ako je tabla puna.
+   */
+  function findRandomFreeCell(grid, size = SIZE, rng = Math.random) {
+    if (!grid) return null;
+    const free = [];
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (!grid[r][c]) free.push({ r, c });
+      }
+    }
+    if (free.length === 0) return null;
+    const idx = Math.floor(rng() * free.length);
+    return free[idx];
+  }
+
+  /**
+   * Proverava koje linije (redovi i kolone) bi bile kompletirane ako se
+   * `shape` postavi na (row, col).
+   * Vraća { rows: number[], cols: number[], cells: Array<{r: number, c: number}> }.
+   */
+  function getCompletedLinesForPlacement(grid, size, shape, row, col) {
+    size = size || SIZE;
+    if (!grid || !shape || !canPlaceOn(grid, size, shape, row, col)) {
+      return { rows: [], cols: [], cells: [] };
+    }
+    const placedSet = new Set();
+    shape.forEach(([r, c]) => {
+      placedSet.add((row + r) + '_' + (col + c));
+    });
+
+    const fullRows = [];
+    const fullCols = [];
+
+    for (let r = 0; r < size; r++) {
+      let rowFull = true;
+      for (let c = 0; c < size; c++) {
+        if (!grid[r][c] && !placedSet.has(r + '_' + c)) {
+          rowFull = false;
+          break;
+        }
+      }
+      if (rowFull) fullRows.push(r);
+    }
+
+    for (let c = 0; c < size; c++) {
+      let colFull = true;
+      for (let r = 0; r < size; r++) {
+        if (!grid[r][c] && !placedSet.has(r + '_' + c)) {
+          colFull = false;
+          break;
+        }
+      }
+      if (colFull) fullCols.push(c);
+    }
+
+    const affectedKeys = new Set();
+    fullRows.forEach(r => {
+      for (let c = 0; c < size; c++) affectedKeys.add(r + '_' + c);
+    });
+    fullCols.forEach(c => {
+      for (let r = 0; r < size; r++) affectedKeys.add(r + '_' + c);
+    });
+
+    const cells = Array.from(affectedKeys).map(key => {
+      const [r, c] = key.split('_').map(Number);
+      return { r, c };
+    });
+
+    return { rows: fullRows, cols: fullCols, cells };
+  }
 
   return {
     SIZE,
@@ -335,11 +601,18 @@
     PULSE_BONUS_DURATION_SEC,
     PULSE_BONUS_MIN_INTERVAL_MS,
     PULSE_BONUS_MAX_INTERVAL_MS,
+    MILESTONE_HAZARDS,
+    ICE_HAZARD_BONUS_POINTS,
+    FIBONACCI_MILESTONES,
     makeGrid,
     shapeSize,
     canPlaceOn,
     anyPlacementOn,
+    pieceAnyPlacementOn,
     trayAnyPlacementOn,
+    hasOccupiedCellsOn,
+    hasAvailableMovesOn,
+    isGameOverOn,
     hasActiveBombsOn,
     countBombExplosionStats,
     sortScoresByTop,
@@ -350,5 +623,14 @@
     calculateComboScore,
     calculatePowerupRewards,
     checkNewBadges,
+    getRockInterval,
+    getRockMaxHp,
+    getBombInterval,
+    getBombInitialTimer,
+    getMilestoneHazardLevel,
+    getFibonacciRockMilestone,
+    getFibonacciMilestoneSpawnConfig,
+    findRandomFreeCell,
+    getCompletedLinesForPlacement,
   };
 });

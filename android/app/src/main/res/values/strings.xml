@@ -4,4 +4,5 @@
     <string name="title_activity_main">Blocks and Rocks</string>
     <string name="package_name">com.blocksrocks.game</string>
     <string name="custom_url_scheme">com.blocksrocks.game</string>
+    <string name="server_client_id">556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com</string>
 </resources>

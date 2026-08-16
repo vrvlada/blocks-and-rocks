@@ -32,7 +32,22 @@ let lbObserver = null;
 let returnToOverlayOnLbClose = false;
 let cachedCountryTop = null;
 let cachedGlobalTop = null;
+try {
+  const savedGlobal = localStorage.getItem('blocksrocks_cached_global_top');
+  if (savedGlobal) cachedGlobalTop = JSON.parse(savedGlobal);
+} catch(_) {}
 let isFetchingBottomRecords = false;
+
+export function getCachedGlobalTopScore(){
+  if (cachedGlobalTop && typeof cachedGlobalTop.score === 'number') {
+    return cachedGlobalTop.score;
+  }
+  try {
+    const saved = localStorage.getItem('blocksrocks_cached_global_top_score');
+    if (saved) return Number(saved) || 0;
+  } catch(_) {}
+  return 0;
+}
 
 export function initLeaderboard(deps){
   D = deps;
@@ -402,6 +417,12 @@ export async function updateBottomRecords(forceFetch = false) {
 
     if (globalDoc) {
       cachedGlobalTop = globalDoc;
+      try {
+        localStorage.setItem('blocksrocks_cached_global_top', JSON.stringify(globalDoc));
+        if (typeof globalDoc.score === 'number') {
+          localStorage.setItem('blocksrocks_cached_global_top_score', String(globalDoc.score));
+        }
+      } catch(_) {}
       const gFlag = globalDoc.countryCode ? D.countryFlag(globalDoc.countryCode) + ' ' : '';
       if (elGlobalPlayer) elGlobalPlayer.textContent = gFlag + (globalDoc.username || '—');
       if (elGlobalPoints) elGlobalPoints.textContent = Number(globalDoc.score || 0).toLocaleString();

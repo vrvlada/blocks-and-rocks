@@ -2,11 +2,12 @@
 import { TRANSLATIONS } from './i18n.js';
 import { escapeHtml } from './js/utils.js';
 import { initAudio, haptic, setMuted, toggleMute, isMuted, getHapticMode, setHapticMode,
-         sfxPlace, sfxClear, sfxBomb, sfxHammer, sfxRockCrack, sfxRockBreak, sfxReroll, sfxRotate, sfxNewBest,
+         sfxPlace, sfxClear, sfxBomb, sfxHammer, sfxRockCrack, sfxRockBreak, sfxReroll, sfxRotate, sfxNewBest, sfxWorldRecord,
+         sfxLevelUp, sfxIceCrack, sfxIceBreak,
          playComboAudio, sfxGameOver, sfxBonusGem } from './js/audio.js';
 import { initEffects, triggerScreenShake, triggerConfetti, showScoreFloat, spawnParticles,
-         spawnCrackParticles, spawnShockwave, spawnSpark } from './js/effects.js';
-import { initLeaderboard, updateBottomRecords, fetchMyTop3 } from './js/leaderboard.js';
+         spawnCrackParticles, spawnShockwave, spawnSpark, spawnIceShatterParticles } from './js/effects.js';
+import { initLeaderboard, updateBottomRecords, fetchMyTop3, getCachedGlobalTopScore } from './js/leaderboard.js';
 import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } from './js/achievements.js';
 
 (function(){
@@ -63,58 +64,65 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       fb_auth = firebase.auth();
       fb_db = firebase.firestore();
 
-      // Catch redirect results for native WebView OAuth flow (sa 10s timeout-om)
-      const redirectTimeoutMs = 10000;
-      let redirectTimerId = null;
-      const redirectTimeout = new Promise((_, reject) => {
-        redirectTimerId = setTimeout(() => reject(new Error('redirect_timeout')), redirectTimeoutMs);
-      });
-      const redirectRace = Promise.race([
-        fb_auth.getRedirectResult().then(result => {
-          if (result && result.user) {
-            console.log('[B&R] Redirect Auth / Link OK:', result.user.uid);
-            // Obavezno obradi identity + localStorage flag-e (isto kao popup flow) —
-            // inače se veza ničim ne registruje i dugme ostaje vidljivo.
-            if (typeof handleGoogleSignInSuccess === 'function') {
-              handleGoogleSignInSuccess(result.user);
+      const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
+      if (isNativeApp || !location.search.includes('apiKey')) {
+        // U mobilnoj aplikaciji ili standardnom pokretanju, odmah se prijavljujemo anonimno
+        if (!fb_auth.currentUser) {
+          fb_auth.signInAnonymously().catch(err => {
+            console.warn('[B&R] Firebase Auth failed:', err.message);
+            if(!fb_userId){
+              fb_userId = localStorage.getItem('blocksrocks_userId') || 'local_' + Math.random().toString(36).slice(2);
             }
-            if (typeof updateGoogleLinkStatus === 'function') updateGoogleLinkStatus();
-          }
-        }).catch(err => {
-          if (err.code === 'auth/credential-already-in-use' && err.credential) {
-            console.warn('[B&R] Google account already linked to another profile, signing into Google profile...');
-            fb_auth.signInWithCredential(err.credential).then(res => {
-              console.log('[B&R] Signed into existing Google account:', res.user.uid);
+          });
+        }
+      } else {
+        // Web redirect obrada (sa kratkim 2.5s timeout-om za web browser)
+        const redirectTimeoutMs = 2500;
+        let redirectTimerId = null;
+        const redirectTimeout = new Promise((_, reject) => {
+          redirectTimerId = setTimeout(() => reject(new Error('redirect_timeout')), redirectTimeoutMs);
+        });
+        const redirectRace = Promise.race([
+          fb_auth.getRedirectResult().then(result => {
+            if (result && result.user) {
+              console.log('[B&R] Redirect Auth / Link OK:', result.user.uid);
               if (typeof handleGoogleSignInSuccess === 'function') {
-                handleGoogleSignInSuccess(res.user);
+                handleGoogleSignInSuccess(result.user);
               }
               if (typeof updateGoogleLinkStatus === 'function') updateGoogleLinkStatus();
-            });
-          } else {
-            console.warn('[B&R] Redirect Auth error:', err.code, err.message);
+            }
+          }).catch(err => {
+            if (err.code === 'auth/credential-already-in-use' && err.credential) {
+              console.warn('[B&R] Google account already linked to another profile, signing into Google profile...');
+              fb_auth.signInWithCredential(err.credential).then(res => {
+                console.log('[B&R] Signed into existing Google account:', res.user.uid);
+                if (typeof handleGoogleSignInSuccess === 'function') {
+                  handleGoogleSignInSuccess(res.user);
+                }
+                if (typeof updateGoogleLinkStatus === 'function') updateGoogleLinkStatus();
+              });
+            } else {
+              console.warn('[B&R] Redirect Auth error:', err.code, err.message);
+            }
+          }),
+          redirectTimeout,
+        ]);
+        redirectRace.catch(err => {
+          if (err && err.message === 'redirect_timeout') {
+            console.warn('[B&R] Redirect Auth timed out after', redirectTimeoutMs, 'ms, continuing anonymously');
           }
-        }),
-        redirectTimeout,
-      ]);
-      redirectRace.catch(err => {
-        if (err && err.message === 'redirect_timeout') {
-          console.warn('[B&R] Redirect Auth timed out after', redirectTimeoutMs, 'ms, continuing anonymously');
-        }
-      }).finally(() => {
-        if (redirectTimerId) { clearTimeout(redirectTimerId); redirectTimerId = null; }
-        // Anonymous sign-in tek NAKON što se redirect rezultat razreši —
-        // sprečava trku u kojoj se napravi novi anonimni nalog usred Google redirect-a.
-        if (fb_auth.currentUser) return;
-        fb_auth.signInAnonymously().catch(err => {
-          console.warn('[B&R] Firebase Auth failed:', err.message);
-          if(!fb_userId){
-            fb_userId = localStorage.getItem('blocksrocks_userId') || 'local_' + Math.random().toString(36).slice(2);
-          }
-          if(!username && typeof showUsernameModal === 'function'){
-            showUsernameModal(null, true);
-          }
+        }).finally(() => {
+          if (redirectTimerId) { clearTimeout(redirectTimerId); redirectTimerId = null; }
+          if (fb_auth.currentUser) return;
+          fb_auth.signInAnonymously().catch(err => {
+            console.warn('[B&R] Firebase Auth failed:', err.message);
+            if(!fb_userId){
+              fb_userId = localStorage.getItem('blocksrocks_userId') || 'local_' + Math.random().toString(36).slice(2);
+            }
+          });
         });
-      });
+      }
 
       fb_auth.onAuthStateChanged(user => {
         if(user) {
@@ -616,18 +624,18 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   /* ═══════════════════════════════════════════════
-   *  GOOGLE ACCOUNT LINKING
+   *  GOOGLE ACCOUNT LINKING & CLOUD SYNC
    * ═══════════════════════════════════════════════ */
   function updateGoogleLinkStatus() {
     const btnLinkGoogle = document.getElementById('btnLinkGoogle');
     const googleStatus = document.getElementById('googleStatus');
     if (!btnLinkGoogle || !googleStatus) return;
-    const isLinked = localStorage.getItem('blocksrocks_googleLinked') === '1' || (fb_auth && fb_auth.currentUser && fb_auth.currentUser.providerData.some(p => p.providerId === 'google.com'));
+    const isLinked = localStorage.getItem('blocksrocks_googleLinked') === '1' || (fb_auth && fb_auth.currentUser && !fb_auth.currentUser.isAnonymous && fb_auth.currentUser.providerData.some(p => p.providerId === 'google.com'));
     const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
     if (isLinked) {
       btnLinkGoogle.style.display = 'none';
       const email = localStorage.getItem('blocksrocks_googleEmail') || '';
-      googleStatus.textContent = t.googleLinked || '✅ Povezano sa Google nalogom';
+      googleStatus.textContent = (t.googleLinked || '✅ Povezano') + (email ? ': ' + email : '');
       if (email) googleStatus.title = email;
       googleStatus.style.color = 'var(--accent)';
     } else {
@@ -651,54 +659,84 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     }
 
     try {
-      // 1. Try Native GoogleAuthPlugin on Android
-      if (window.Capacitor && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable('GoogleAuthPlugin')) {
-        console.log('[B&R] Launching Native Google Sign-In...');
+      const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+      const GoogleAuth = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.GoogleAuth;
+
+      // 1. Native Google Sign-In on Android
+      if (isNative && GoogleAuth) {
+        console.log('[B&R] Launching Native Android Google Sign-In...');
         try {
-          const res = await window.Capacitor.Plugins.GoogleAuthPlugin.signIn();
-          if (res && res.signedIn && res.userId) {
-            console.log('[B&R] Native Google Auth success:', res.email);
-            await handleGoogleSignInSuccess({
-              uid: 'google_' + res.userId,
-              email: res.email,
-              displayName: res.displayName,
-              photoUrl: res.photoUrl,
-              idToken: res.idToken
-            });
+          await GoogleAuth.initialize({
+            clientId: '556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com',
+            scopes: ['profile', 'email'],
+            grantOfflineAccess: true
+          }).catch(() => {});
+
+          const googleUser = await GoogleAuth.signIn();
+          const idToken = (googleUser.authentication && googleUser.authentication.idToken) || googleUser.idToken;
+
+          if (idToken && fb_auth) {
+            const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
+            let authResult;
+            if (fb_auth.currentUser && fb_auth.currentUser.isAnonymous) {
+              try {
+                authResult = await fb_auth.currentUser.linkWithCredential(credential);
+              } catch (linkErr) {
+                if (linkErr.code === 'auth/credential-already-in-use' || linkErr.code === 'auth/email-already-in-use') {
+                  authResult = await fb_auth.signInWithCredential(credential);
+                } else {
+                  throw linkErr;
+                }
+              }
+            } else {
+              authResult = await fb_auth.signInWithCredential(credential);
+            }
+
+            const activeUser = authResult.user || fb_auth.currentUser;
+            await handleGoogleSignInSuccess(activeUser, googleUser);
             updateGoogleLinkStatus();
             return true;
           }
         } catch (nativeErr) {
-          if (nativeErr === 'cancelled' || (nativeErr && nativeErr.message && nativeErr.message.includes('cancelled'))) {
+          if (nativeErr === 'cancelled' || (nativeErr && (nativeErr.message || '').toLowerCase().includes('cancel') || (nativeErr.message || '').includes('12501'))) {
             console.log('[B&R] Google Sign-In cancelled by user');
-            if (googleStatus) googleStatus.textContent = '';
+            if (googleStatus) updateGoogleLinkStatus();
             return false;
           }
-          console.warn('[B&R] Native Google Auth issue, trying web fallback:', nativeErr);
+          console.warn('[B&R] Native Google Auth error:', nativeErr);
+          throw nativeErr;
         }
       }
 
-      // 2. Web fallback via Firebase Auth
+      // 2. Web browser (Popup auth)
       if (fb_auth) {
         const provider = new firebase.auth.GoogleAuthProvider();
+        let activeUser = null;
         if (fb_auth.currentUser) {
           try {
             const result = await fb_auth.currentUser.linkWithPopup(provider);
-            if (result && result.user) await handleGoogleSignInSuccess(result.user);
+            if (result && result.user) activeUser = result.user;
           } catch (popupErr) {
             if (popupErr.code === 'auth/credential-already-in-use' && popupErr.credential) {
               const res = await fb_auth.signInWithCredential(popupErr.credential);
-              if (res && res.user) await handleGoogleSignInSuccess(res.user);
+              if (res && res.user) activeUser = res.user;
+            } else if (popupErr.code === 'auth/popup-closed-by-user') {
+              console.log('[B&R] Google popup closed by user');
+              if (googleStatus) updateGoogleLinkStatus();
+              return false;
             } else {
-              await fb_auth.currentUser.linkWithRedirect(provider);
+              throw popupErr;
             }
           }
         } else {
           const res = await fb_auth.signInWithPopup(provider);
-          if (res && res.user) await handleGoogleSignInSuccess(res.user);
+          if (res && res.user) activeUser = res.user;
         }
-        updateGoogleLinkStatus();
-        return true;
+        if (activeUser) {
+          await handleGoogleSignInSuccess(activeUser);
+          updateGoogleLinkStatus();
+          return true;
+        }
       }
     } catch (err) {
       console.error('[B&R] Google Sign-In error:', err);
@@ -724,14 +762,15 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     btnLinkGoogleBtn.addEventListener('click', performGoogleSignIn);
   }
 
-  async function handleGoogleSignInSuccess(googleUser) {
-    if (!googleUser) return;
-    const gUid = googleUser.uid;
+  async function handleGoogleSignInSuccess(activeUser, nativeGoogleUser) {
+    if (!activeUser) return;
+    const gUid = activeUser.uid;
     fb_userId = gUid;
-    firebaseReady = true; // Sinhronizuj identitet pre nego sync funkcije pročitaju fb_userId
+    firebaseReady = true;
     localStorage.setItem('blocksrocks_userId', fb_userId);
     localStorage.setItem('blocksrocks_googleLinked', '1');
-    localStorage.setItem('blocksrocks_googleEmail', googleUser.email || '');
+    const email = activeUser.email || (nativeGoogleUser && nativeGoogleUser.email) || '';
+    if (email) localStorage.setItem('blocksrocks_googleEmail', email);
 
     const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
 
@@ -747,8 +786,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
             username = cloudName;
             if (usernameInput) usernameInput.value = cloudName;
 
-            if (udata.personalBest && Number(udata.personalBest) > personalBest) {
-              savePersonalBest(Number(udata.personalBest));
+            const cloudBest = Number(udata.personalBest || udata.score || 0);
+            if (cloudBest > personalBest) {
+              savePersonalBest(cloudBest);
               best = personalBest;
               if (bestEl) bestEl.textContent = best;
             }
@@ -762,23 +802,26 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
             showMsg((t.googleWelcomeBack || '✅ Dobrodošao nazad, ') + cloudName + '!', 3500);
             haptic('success');
-            console.log('[B&R] Cloud profile restored for Google user:', cloudName);
+            console.log('[B&R] Cloud profile restored for Google user:', cloudName, 'Best:', personalBest);
             if (typeof fetchMyTop3 === 'function') fetchMyTop3();
             if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
             return;
           }
         }
 
-        // New Google user: if existing nickname is valid, register it
-        if (username && username.length >= 3) {
-          await registerAndSaveUsername(username);
-        } else if (googleUser.displayName) {
-          const cleanDisplay = googleUser.displayName.replace(/[^a-zA-Z0-9_\-\u00C0-\u024F\u0400-\u04FF]/g, '').substring(0,12);
-          if (cleanDisplay.length >= 3 && usernameInput) {
-            usernameInput.value = cleanDisplay;
-            usernameInput.dispatchEvent(new Event('input'));
-          }
+        // New profile for this Google Account
+        let finalUsername = username;
+        if (!finalUsername || finalUsername.length < 3) {
+          const rawDisp = (nativeGoogleUser && (nativeGoogleUser.displayName || nativeGoogleUser.name)) || activeUser.displayName || 'Igrač';
+          finalUsername = rawDisp.replace(/[^a-zA-Z0-9_\-\u00C0-\u024F\u0400-\u04FF]/g, '').substring(0, 12);
+          if (finalUsername.length < 3) finalUsername = 'Igrač_' + Math.floor(1000 + Math.random() * 9000);
         }
+
+        await registerAndSaveUsername(finalUsername);
+        showMsg(t.googleLinkedSuccess || '✅ Google nalog uspešno povezan!', 3500);
+        haptic('success');
+        if (typeof fetchMyTop3 === 'function') fetchMyTop3();
+        if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
       } catch (e) {
         console.warn('[B&R] Error handling Google sign-in sync:', e);
       }
@@ -1069,23 +1112,31 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   async function initUserIdentity() {
+    const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    const GoogleAuth = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.GoogleAuth;
+
     // 1. Silent Google Account check in the background
-    if (window.Capacitor && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable('GoogleAuthPlugin')) {
+    if (isNative && GoogleAuth) {
       try {
-        const silent = await window.Capacitor.Plugins.GoogleAuthPlugin.getSilentAccount();
-        if (silent && silent.signedIn && silent.userId) {
-          console.log('[B&R] Silent Google Account detected:', silent.email);
-          await handleGoogleSignInSuccess({
-            uid: 'google_' + silent.userId,
-            email: silent.email,
-            displayName: silent.displayName,
-            photoUrl: silent.photoUrl,
-            idToken: silent.idToken
-          });
-          if (username) return;
+        await GoogleAuth.initialize({
+          clientId: '556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com',
+          scopes: ['profile', 'email'],
+          grantOfflineAccess: true
+        }).catch(() => {});
+
+        const silent = await GoogleAuth.refresh().catch(() => null);
+        if (silent && (silent.idToken || (silent.authentication && silent.authentication.idToken)) && fb_auth) {
+          const idToken = (silent.authentication && silent.authentication.idToken) || silent.idToken;
+          const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
+          const res = await fb_auth.signInWithCredential(credential);
+          if (res && res.user) {
+            console.log('[B&R] Silent Google Account restored:', res.user.uid);
+            await handleGoogleSignInSuccess(res.user, silent);
+            if (username) return;
+          }
         }
       } catch (silentErr) {
-        console.warn('[B&R] Silent Google login notice:', silentErr);
+        console.warn('[B&R] Silent Google login note:', silentErr);
       }
     }
 
@@ -1434,6 +1485,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   let rerollsCount = 1;
   let isHammerActive = false;
   let hasCelebratedNewBest = false;
+  let hasCelebratedWorldRecord = false;
+  let lastMilestoneHazardLevel = -1;
+  let lastFibonacciMilestoneIndex = -1;
   let paused = false;
   let gameStartTime = 0;
   let previewCells = new Set();
@@ -1458,6 +1512,10 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   const comboPillText = document.getElementById('comboPillText');
 
   best = personalBest;
+  // Rekord na početku partije — potreban da bi se na ekranu kraja igre ispravno
+  // prikazalo "NOVI REKORD" (best se tokom igre ažurira uživo, pa poređenje
+  // finalScore > best biva lažno čak i kad je rekord postavljen u ovoj partiji).
+  let bestAtGameStart = best;
 
   /* ═══ MODULE WIRING (ES moduli + dependency injection) ═══ */
   initAudio({ getT: () => TRANSLATIONS[currentLang] || TRANSLATIONS.sr });
@@ -1477,6 +1535,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     getGameOver: () => gameOver,
     overlayEl,
   });
+
 
   function updatePowerupUI(){
     if (puHammerCount) puHammerCount.textContent = hammersCount;
@@ -1716,6 +1775,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       const saved = !fromSave ? loadGameState() : null;
       best = parseInt(localStorage.getItem('blocksrocks_personalBest') || '0');
       personalBest = best;
+      bestAtGameStart = best;
       if(bestEl) bestEl.textContent = best;
       paused = false;
       gameStartTime = Date.now();
@@ -1780,6 +1840,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         refillTray();
         clearGameState();
       }
+      hasCelebratedNewBest = false;
+      hasCelebratedWorldRecord = false;
       if(pulseBonusState.intervalId) { clearInterval(pulseBonusState.intervalId); pulseBonusState.intervalId = null; }
       if(pulseBonusState.nextSpawnTimeoutId) { clearTimeout(pulseBonusState.nextSpawnTimeoutId); pulseBonusState.nextSpawnTimeoutId = null; }
       pulseBonusState.r = -1;
@@ -1808,7 +1870,75 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       updatePowerupUI();
       gameOver = false;
       dragging = null;
+      hasCelebratedNewBest = false;
+      hasCelebratedWorldRecord = false;
+      lastMilestoneHazardLevel = GameCore.getMilestoneHazardLevel(score);
+      lastFibonacciMilestoneIndex = GameCore.getFibonacciRockMilestone(score);
       render();
+    }
+  }
+
+  function checkFibonacciMilestones(currentScore){
+    const reached = GameCore.getFibonacciRockMilestone(currentScore);
+    if(reached > lastFibonacciMilestoneIndex){
+      lastFibonacciMilestoneIndex = reached;
+      const spawnList = GameCore.getFibonacciMilestoneSpawnConfig(reached);
+      const threshold = GameCore.FIBONACCI_MILESTONES[reached];
+      let spawnedCount = 0;
+      spawnList.forEach(item => {
+        const freeCell = GameCore.findRandomFreeCell(grid, SIZE);
+        if(freeCell){
+          grid[freeCell.r][freeCell.c] = {
+            color: '#697287',
+            hp: item.maxHp || 2,
+            maxHp: item.maxHp || 2,
+          };
+          spawnedCount++;
+          const idx = freeCell.r * SIZE + freeCell.c;
+          const el = boardEl.children[idx];
+          if(el){
+            el.classList.add('pop-in');
+            setTimeout(() => el.classList.remove('pop-in'), 350);
+          }
+        }
+      });
+
+      if(spawnedCount > 0){
+        sfxRockCrack();
+        triggerScreenShake('light');
+        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+        const msgTpl = t.msgFibonacciRockSpawn || '🪨 STENA NA TABLI! (%s PTS)';
+        showMsg(msgTpl.replace('%s', threshold.toLocaleString()), 2500);
+        render();
+      }
+    }
+  }
+
+  function checkMilestones(currentScore){
+    const reached = GameCore.getMilestoneHazardLevel(currentScore);
+    if(reached > lastMilestoneHazardLevel){
+      lastMilestoneHazardLevel = reached;
+      const freeCell = GameCore.findRandomFreeCell(grid, SIZE);
+      if(freeCell){
+        grid[freeCell.r][freeCell.c] = {
+          color: '#38bdf8',
+          hp: 1,
+          maxHp: 1,
+          isIceHazard: true,
+        };
+        sfxLevelUp();
+        triggerScreenShake('light');
+        triggerConfetti(40);
+        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+        showMsg(t.msgLevelUpHazard || '⚠️ LEVEL UP: ZONA OPASNOSTI! ❄️', 3500);
+        render();
+        const idx = freeCell.r * SIZE + freeCell.c;
+        const el = boardEl.children[idx];
+        if (el) {
+          el.classList.add('pop-in');
+          setTimeout(() => el.classList.remove('pop-in'), 300);
+        }
+      }
     }
   }
 
@@ -1818,8 +1948,11 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const shape = SHAPES[Math.floor(Math.random()*SHAPES.length)];
     const color = COLORS[Math.floor(Math.random()*COLORS.length)];
 
-    let stoneIndex = (pieceCounter % 10 === 0) ? Math.floor(Math.random()*shape.length) : null;
+    const rockInterval = GameCore.getRockInterval(score);
+    let stoneIndex = (pieceCounter % rockInterval === 0) ? Math.floor(Math.random()*shape.length) : null;
+    let stoneMaxHp = stoneIndex !== null ? GameCore.getRockMaxHp(score) : 1;
     let bombIndex = null;
+    let bombInitialTimer = 3;
 
     if(bombCounter >= nextBombAt){
       bombIndex = Math.floor(Math.random()*shape.length);
@@ -1827,11 +1960,12 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         if(shape.length > 1) stoneIndex = (bombIndex+1) % shape.length;
         else stoneIndex = null;
       }
+      bombInitialTimer = GameCore.getBombInitialTimer(score);
       bombCounter = 0;
-      nextBombAt = 15 + Math.floor(Math.random()*6);
+      nextBombAt = GameCore.getBombInterval(score);
     }
 
-    return {shape, color, stoneIndex, bombIndex, id: Math.random().toString(36).slice(2)};
+    return {shape, color, stoneIndex, stoneMaxHp, bombIndex, bombInitialTimer, id: Math.random().toString(36).slice(2)};
   }
 
   function refillTray(){
@@ -1858,8 +1992,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   function checkGameOver(){
-    // Game over only when none of the tray pieces can be placed anywhere
-    return !GameCore.trayAnyPlacementOn(grid, SIZE, tray);
+    // Game over only when no tray pieces can be placed in any rotation AND no hammers/rerolls available
+    return GameCore.isGameOverOn(grid, SIZE, tray, hammersCount, rerollsCount);
   }
 
   function checkAndTriggerGameOver(delay = CONFIG.GAME_OVER_DELAY_AFTER_CLEAR){
@@ -1879,12 +2013,15 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     piece.shape.forEach(([r,c], i)=>{
       const isStone = piece.stoneIndex === i;
       const isBomb = piece.bombIndex === i;
+      const sHp = isStone ? (piece.stoneMaxHp || 2) : 1;
+      const bTimer = isBomb ? (piece.bombInitialTimer || 3) : undefined;
       grid[row+r][col+c] = {
         color: piece.color,
-        hp: isStone?2:1,
-        maxHp: isStone?2:1,
+        hp: sHp,
+        maxHp: sHp,
         bomb: isBomb,
-        timer: isBomb?3:undefined
+        timer: bTimer,
+        initialTimer: bTimer,
       };
       placedIndices.push((row+r)*SIZE + (col+c));
       if(isBomb) bombPos = {r:row+r, c:col+c};
@@ -1892,7 +2029,18 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const prevScore = score;
     score += piece.shape.length;
     showScoreFloat(score - prevScore);
+    if(score > personalBest){
+      savePersonalBest(score);
+      if(fb_db && firebaseReady && fb_userId){
+        fb_db.collection('users').doc(fb_userId).set({
+          personalBest: score,
+          updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
+        }, { merge: true }).catch(()=>{});
+      }
+    }
     grantPowerupRewards(prevScore, score);
+    checkFibonacciMilestones(score);
+    checkMilestones(score);
     checkAndUnlockBadges(careerStats, score, best, currentLang);
     sfxPlace();
     render();
@@ -1920,8 +2068,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   };
 
   function getRandomPulseInterval(){
-    const min = GameCore.PULSE_BONUS_MIN_INTERVAL_MS || 120000;
-    const max = GameCore.PULSE_BONUS_MAX_INTERVAL_MS || 180000;
+    const min = GameCore.PULSE_BONUS_MIN_INTERVAL_MS || 100000;
+    const max = GameCore.PULSE_BONUS_MAX_INTERVAL_MS || 150000;
     return Math.floor(Math.random() * (max - min)) + min;
   }
 
@@ -1969,7 +2117,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     pulseBonusState.timer = cellData.pulseTimer;
 
     const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    showMsg(t.msgPulseBonusSpawn || '✨ Zlatna kocka pulsira! Razbij je za +100!', 3000);
+    const pts = GameCore.PULSE_BONUS_POINTS || 250;
+    showMsg(t.msgPulseBonusSpawn || ('✨ Zlatna kocka pulsira! Razbij je za +' + pts + '!'), 3000);
     haptic('medium');
     sfxBonusGem();
     render();
@@ -2018,14 +2167,14 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   function checkAndCollectPulseBonus(r, c){
     if(pulseBonusState.r === r && pulseBonusState.c === c){
-      const pts = GameCore.PULSE_BONUS_POINTS || 100;
+      const pts = GameCore.PULSE_BONUS_POINTS || 250;
       score += pts;
       showScoreFloat(pts);
       sfxBonusGem();
       triggerConfetti(25);
       haptic('success');
       const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-      showMsg(t.msgPulseBonusClaimed || '🌟 +100 BONUS OSVOJEN!', 2500);
+      showMsg(t.msgPulseBonusClaimed || ('🌟 +' + pts + ' BONUS OSVOJEN!'), 2500);
       endPulseBonus(true);
       return true;
     }
@@ -2154,9 +2303,20 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         const idx = pos.r*SIZE+pos.c;
         const el = boardEl.children[idx];
         if(pos.willRemove){
+          if(data.isIceHazard){
+            score += GameCore.ICE_HAZARD_BONUS_POINTS || 500;
+            showScoreFloat(GameCore.ICE_HAZARD_BONUS_POINTS || 500);
+            spawnIceShatterParticles(pos.r, pos.c);
+            sfxIceBreak();
+            const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+            showMsg(t.msgIceDestroyed || '❄️ LED RAZBIJEN! +500', 2000);
+          } else if(data.maxHp >= 2){
+            sfxRockBreak();
+            spawnParticles([pos.r+'_'+pos.c], '#8690a8');
+          }
           if(el){
             el.style.color = el.style.backgroundColor;
-            el.classList.remove('bomb-cell');
+            el.classList.remove('bomb-cell', 'ice-hazard');
             const lbl = el.querySelector('.bomb-label');
             if(lbl) lbl.remove();
             el.classList.remove('pop-in');
@@ -2166,8 +2326,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         } else {
           data.hp -= 1;
           if(el){
-            el.classList.remove('stone-full');
-            el.classList.add('stone-cracked','cracking');
+            el.classList.remove('stone-full', 'stone-granite-3', 'stone-granite-2');
+            if(data.maxHp === 3 && data.hp === 2) el.classList.add('stone-granite-2', 'cracking');
+            else el.classList.add('stone-cracked','cracking');
             el.style.backgroundColor = '';
           }
           sfxRockCrack();
@@ -2243,6 +2404,17 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const bonus = GameCore.calculateComboScore(linesCleared, removedCount, crackedCount, comboStreak);
     score += bonus;
     showScoreFloat(bonus);
+    if(score > personalBest){
+      savePersonalBest(score);
+      if(fb_db && firebaseReady && fb_userId){
+        fb_db.collection('users').doc(fb_userId).set({
+          personalBest: score,
+          updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
+        }, { merge: true }).catch(()=>{});
+      }
+    }
+    checkFibonacciMilestones(score);
+    checkMilestones(score);
     checkAndUnlockBadges(careerStats, score, best, currentLang);
 
     playComboAudio(comboStreak, linesCleared);
@@ -2276,12 +2448,20 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     spawnCrackParticles([r+'_'+c]);
     spawnParticles([r+'_'+c], '#fbbf24');
 
-    if(cellData.hp > 1){
+    if(cellData.isIceHazard){
+      score += GameCore.ICE_HAZARD_BONUS_POINTS || 500;
+      showScoreFloat(GameCore.ICE_HAZARD_BONUS_POINTS || 500);
+      spawnIceShatterParticles(r, c);
+      sfxIceBreak();
+      grid[r][c] = null;
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      showMsg(t.msgIceDestroyed || '❄️ LED RAZBIJEN! +500', 2000);
+    } else if(cellData.hp > 1){
       cellData.hp -= 1;
       sfxRockCrack();
     } else {
       checkAndCollectPulseBonus(r, c);
-      if(cellData.maxHp === 2){
+      if(cellData.maxHp >= 2){
         recordCareerStat('rocksCrushed', 1);
         sfxRockBreak();
       }
@@ -2302,9 +2482,13 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   let cellElements = [];
+  // Per-Ćelija keš: čuvamo poslednju primenjenu boju i referencu na dekoratore
+  // (bomb/pulse label) kako bi render() izbegao ponovne style write-ove i querySelector.
+  const cellsMeta = new WeakMap();
   function initBoardDOM(){
     boardEl.innerHTML = '';
     cellElements = [];
+    const frag = document.createDocumentFragment();
     for(let r=0; r<SIZE; r++){
       for(let c=0; c<SIZE; c++){
         const div = document.createElement('div');
@@ -2312,37 +2496,44 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         div.dataset.r = r;
         div.dataset.c = c;
         div.addEventListener('click', () => handleCellClick(r, c));
-        boardEl.appendChild(div);
+        frag.appendChild(div);
         cellElements.push(div);
+        cellsMeta.set(div, { lastColor: null, bombLabel: null, pulseLabel: null });
       }
     }
+    boardEl.appendChild(frag);
   }
 
   /**
    * Briše sve dinamičke dekoratore ćelije (bomb label, pulse bonus label).
    */
   function clearCellDecorators(div){
-    const lbl = div.querySelector('.bomb-label');
-    if(lbl) lbl.remove();
-    const pb = div.querySelector('.pulse-bonus-label');
-    if(pb) pb.remove();
+    const meta = cellsMeta.get(div);
+    if(!meta) return;
+    const lbl = meta.bombLabel;
+    if(lbl){ lbl.remove(); meta.bombLabel = null; }
+    const pb = meta.pulseLabel;
+    if(pb){ pb.remove(); meta.pulseLabel = null; }
   }
 
   /**
    * Održava bomb label element unutar ćelije (stvara/briše).
    */
   function renderBombLabel(div, data){
+    const meta = cellsMeta.get(div) || (cellsMeta.set(div, { lastColor: null, bombLabel: null, pulseLabel: null }), cellsMeta.get(div));
     if(data && data.bomb){
-      let label = div.querySelector('.bomb-label');
+      let label = meta.bombLabel;
       if(!label){
         label = document.createElement('div');
         label.className = 'bomb-label';
         div.appendChild(label);
+        meta.bombLabel = label;
       }
-      label.textContent = data.timer || 3;
+      const val = data.timer || 3;
+      if(label.textContent != val) label.textContent = val;
     } else {
-      const label = div.querySelector('.bomb-label');
-      if(label) label.remove();
+      const label = meta.bombLabel;
+      if(label){ label.remove(); meta.bombLabel = null; }
     }
   }
 
@@ -2350,17 +2541,21 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
    * Održava pulse bonus label element unutar ćelije (stvara/briše).
    */
   function renderPulseLabel(div, data){
+    const meta = cellsMeta.get(div) || (cellsMeta.set(div, { lastColor: null, bombLabel: null, pulseLabel: null }), cellsMeta.get(div));
     if(data && data.isPulseBonus){
-      let pbLabel = div.querySelector('.pulse-bonus-label');
+      let pbLabel = meta.pulseLabel;
       if(!pbLabel){
         pbLabel = document.createElement('div');
         pbLabel.className = 'pulse-bonus-label';
         div.appendChild(pbLabel);
+        meta.pulseLabel = pbLabel;
       }
-      pbLabel.innerHTML = '<span class="pb-sec">' + (data.pulseTimer || 10) + 's</span><span class="pb-pts">+100</span>';
+      const pts = GameCore.PULSE_BONUS_POINTS || 250;
+      const html = '<span class="pb-sec">' + (data.pulseTimer || 10) + 's</span><span class="pb-pts">+' + pts + '</span>';
+      if (pbLabel.innerHTML !== html) pbLabel.innerHTML = html;
     } else {
-      const pbLabel = div.querySelector('.pulse-bonus-label');
-      if(pbLabel) pbLabel.remove();
+      const pbLabel = meta.pulseLabel;
+      if(pbLabel){ pbLabel.remove(); meta.pulseLabel = null; }
     }
   }
 
@@ -2370,9 +2565,22 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   function cellClassName(data){
     if(!data) return 'cell';
     let cls = 'cell filled';
-    if(data.maxHp === 2 && data.hp >= 2) cls += ' stone-full';
-    else if(data.maxHp === 2 && data.hp === 1) cls += ' stone-cracked';
-    if(data.bomb) cls += ' bomb-cell';
+    if(data.isIceHazard) {
+      cls += ' ice-hazard';
+      return cls;
+    }
+    if(data.maxHp === 3){
+      if(data.hp >= 3) cls += ' stone-granite-3';
+      else if(data.hp === 2) cls += ' stone-granite-2';
+      else cls += ' stone-cracked';
+    } else if(data.maxHp === 2){
+      if(data.hp >= 2) cls += ' stone-full';
+      else cls += ' stone-cracked';
+    }
+    if(data.bomb){
+      cls += ' bomb-cell';
+      if(data.initialTimer === 2) cls += ' fast-bomb';
+    }
     if(data.isPulseBonus){
       cls += ' pulse-bonus-cell';
       if(data.pulseTimer <= 3) cls += ' urgent';
@@ -2397,30 +2605,52 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
             div.className = cls;
           }
           if(data){
-            if(data.maxHp === 2){
-              div.style.backgroundColor = '';
-            } else {
-              div.style.backgroundColor = data.color || '#5eead4';
+            const target = (data.maxHp === 2) ? '' : (data.color || '#5eead4');
+            const meta = cellsMeta.get(div);
+            if (meta && meta.lastColor !== target) {
+              meta.lastColor = target;
+              div.style.backgroundColor = target;
             }
             renderBombLabel(div, data);
             renderPulseLabel(div, data);
           } else {
-            div.style.backgroundColor = '';
+            const meta = cellsMeta.get(div);
+            if (meta && meta.lastColor !== '') {
+              meta.lastColor = '';
+              div.style.backgroundColor = '';
+            }
             clearCellDecorators(div);
           }
         }
       }
       renderTray();
       if(scoreEl) scoreEl.textContent = score;
+
+      const worldRecordScore = typeof getCachedGlobalTopScore === 'function' ? getCachedGlobalTopScore() : 0;
+      if(worldRecordScore > 0 && score > worldRecordScore){
+        if(!hasCelebratedWorldRecord){
+          hasCelebratedWorldRecord = true;
+          triggerConfetti(100);
+          sfxWorldRecord();
+          const globalBox = document.getElementById('bottomGlobalCard');
+          if(globalBox) globalBox.classList.add('record-breaking');
+          const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+          setMsg(t.worldRecordBroken || '🌍 NOVI SVETSKI REKORD! 🎉', CONFIG.MSG_DURATION_COMBO || 2500);
+        }
+      }
+
       if(score > best){
         if(best > 0 && !hasCelebratedNewBest){
           hasCelebratedNewBest = true;
           triggerConfetti(70);
-          sfxNewBest();
+          if (!hasCelebratedWorldRecord) {
+            sfxNewBest();
+          }
           const bestBox = document.querySelector('.scorebox.best');
           if(bestBox) bestBox.classList.add('record-breaking');
         }
         best = score;
+        savePersonalBest(best);
       }
       if(bestEl) bestEl.textContent = best;
     } catch(err){
@@ -2467,14 +2697,16 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
         if(piece && piece.shape && Array.isArray(piece.shape)){
           const {rows, cols} = shapeSize(piece.shape);
+          const occMap = new Map();
+          piece.shape.forEach(([sr,sc], i)=> occMap.set(sr+','+sc, i));
           const pg = document.createElement('div');
           pg.className = 'piece-grid';
           pg.style.gridTemplateColumns = `repeat(${cols}, 16px)`;
           pg.style.gridTemplateRows = `repeat(${rows}, 16px)`;
           for(let r=0;r<rows;r++){
             for(let c=0;c<cols;c++){
-              const shapeIdx = piece.shape.findIndex(([sr,sc])=>sr===r&&sc===c);
-              const on = shapeIdx !== -1;
+              const shapeIdx = occMap.get(r+','+c);
+              const on = shapeIdx !== undefined;
               const isStone = on && shapeIdx === piece.stoneIndex;
               const isBomb = on && shapeIdx === piece.bombIndex;
               const cell = document.createElement('div');
@@ -2615,14 +2847,16 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   function buildGhost(piece){
     const {rows, cols} = shapeSize(piece.shape);
     const {cellW} = cachedBoardGeometry || getCellGeometry();
+    const occMap = new Map();
+    piece.shape.forEach(([sr,sc], i)=> occMap.set(sr+','+sc, i));
     ghostEl.innerHTML = '';
     ghostEl.style.display = 'grid';
     ghostEl.style.gridTemplateColumns = `repeat(${cols}, ${cellW}px)`;
     ghostEl.style.gridTemplateRows = `repeat(${rows}, ${cellW}px)`;
     for(let r=0;r<rows;r++){
       for(let c=0;c<cols;c++){
-        const shapeIdx = piece.shape.findIndex(([sr,sc])=>sr===r&&sc===c);
-        const on = shapeIdx !== -1;
+        const shapeIdx = occMap.get(r+','+c);
+        const on = shapeIdx !== undefined;
         const isStone = on && shapeIdx === piece.stoneIndex;
         const isBomb = on && shapeIdx === piece.bombIndex;
         const cell = document.createElement('div');
@@ -2666,11 +2900,17 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     return {row, col};
   }
 
+  let previewLineCells = new Set();
+
   function clearPreview(){
     previewCells.forEach(el=>{
       el.classList.remove('preview-ok','preview-bad');
     });
     previewCells.clear();
+    previewLineCells.forEach(el=>{
+      el.classList.remove('preview-line-glow');
+    });
+    previewLineCells.clear();
   }
 
   function updatePreview(x,y){
@@ -2693,6 +2933,18 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         }
       }
     });
+
+    if(ok){
+      const { cells } = GameCore.getCompletedLinesForPlacement(grid, SIZE, dragging.piece.shape, row, col);
+      cells.forEach(({r, c}) => {
+        const idx = r * SIZE + c;
+        const el = boardEl.children[idx];
+        if(el){
+          el.classList.add('preview-line-glow');
+          previewLineCells.add(el);
+        }
+      });
+    }
   }
 
   let dragRAF = null;
@@ -2981,13 +3233,30 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     recordCareerStat('totalScore', finalScore);
 
     document.getElementById('finalscore').textContent = finalScore;
-    const isNewBest = finalScore > 0 && finalScore > best;
-    if(isNewBest){
+    // poredimo sa rekordom NA POČETKU partije, ne sa `best` (koji je tokom igre
+    // već dopunjen do finalScore, pa bi poređenje uvek bilo lažno)
+    const isNewBest = finalScore > 0 && finalScore > bestAtGameStart;
+    const worldRecordScore = typeof getCachedGlobalTopScore === 'function' ? getCachedGlobalTopScore() : 0;
+    const isNewWorldRecord = worldRecordScore > 0 && finalScore > worldRecordScore;
+
+    if(isNewWorldRecord && !hasCelebratedWorldRecord){
+      hasCelebratedWorldRecord = true;
       best = finalScore;
       savePersonalBest(best);
       if(bestEl) bestEl.textContent = best;
-      triggerConfetti(80);
-      sfxNewBest();
+      triggerConfetti(100);
+      sfxWorldRecord();
+    } else if(isNewBest){
+      best = finalScore;
+      savePersonalBest(best);
+      if(bestEl) bestEl.textContent = best;
+      // Ako novi rekord već nije proslavljen tokom igre (npr. postignut poslednjim
+      // čišćenjem linija koje nema vremena da se renderuje), slavimo ovde.
+      if(!hasCelebratedNewBest){
+        hasCelebratedNewBest = true;
+        triggerConfetti(80);
+        sfxNewBest();
+      }
     }
     document.getElementById('newbestLabel').style.display = isNewBest ? '' : 'none';
 

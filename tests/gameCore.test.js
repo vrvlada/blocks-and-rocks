@@ -5,9 +5,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const G = require('../www/gameCore.js');
 
-test('constants: SIZE=8, 22 shapes, 7 colors', () => {
+test('constants: SIZE=8, 30 shapes, 7 colors', () => {
   assert.equal(G.SIZE, 8);
-  assert.equal(G.SHAPES.length, 22);
+  assert.equal(G.SHAPES.length, 30);
   assert.equal(G.COLORS.length, 7);
 });
 
@@ -70,6 +70,56 @@ test('trayAnyPlacementOn mirrors checkGameOver logic (regression for premature g
   // Fill the hole -> game over for these pieces
   for (let r = 3; r <= 4; r++) for (let c = 3; c <= 4; c++) grid[r][c] = { color: '#bbb' };
   assert.equal(G.trayAnyPlacementOn(grid, G.SIZE, tray), false);
+});
+
+test('pieceAnyPlacementOn and trayAnyPlacementOn test all 4 rotations', () => {
+  // Board with only 1 horizontal 1x3 slot free, rest is filled
+  const grid = G.makeGrid().map(row => row.map(() => ({ color: '#aaa' })));
+  grid[2][0] = null;
+  grid[2][1] = null;
+  grid[2][2] = null;
+
+  // A 3x1 vertical piece [[0,0], [1,0], [2,0]] does not fit directly (rows 2,3,4 on col 0 blocked)
+  const verticalPiece = [[0, 0], [1, 0], [2, 0]];
+  assert.equal(G.anyPlacementOn(grid, G.SIZE, verticalPiece), false, 'does not fit in 0 deg rotation');
+
+  // But pieceAnyPlacementOn rotates it to horizontal [[0,0], [0,1], [0,2]] which fits at (2,0)!
+  assert.equal(G.pieceAnyPlacementOn(grid, G.SIZE, verticalPiece), true, 'fits after 90 deg rotation');
+
+  // trayAnyPlacementOn should return true for this piece
+  const tray = [{ shape: verticalPiece }, null, null];
+  assert.equal(G.trayAnyPlacementOn(grid, G.SIZE, tray), true);
+});
+
+test('hasOccupiedCellsOn detects filled cells', () => {
+  const emptyGrid = G.makeGrid();
+  assert.equal(G.hasOccupiedCellsOn(emptyGrid, G.SIZE), false);
+
+  const gridWithCell = G.makeGrid();
+  gridWithCell[4][4] = { color: '#fbbf24', hp: 1 };
+  assert.equal(G.hasOccupiedCellsOn(gridWithCell, G.SIZE), true);
+});
+
+test('hasAvailableMovesOn and isGameOverOn consider piece rotations, hammers, and rerolls', () => {
+  // Completely full board - no piece in any rotation can be placed
+  const fullGrid = G.makeGrid().map(row => row.map(() => ({ color: '#333' })));
+  const tray = [{ shape: [[0, 0]] }]; // 1x1 block
+
+  // 1. Full board, no hammers, no rerolls -> Game Over!
+  assert.equal(G.hasAvailableMovesOn(fullGrid, G.SIZE, tray, 0, 0), false);
+  assert.equal(G.isGameOverOn(fullGrid, G.SIZE, tray, 0, 0), true);
+
+  // 2. Full board, but player has a hammer -> NOT Game Over (can smash a block to make space)
+  assert.equal(G.hasAvailableMovesOn(fullGrid, G.SIZE, tray, 1, 0), true);
+  assert.equal(G.isGameOverOn(fullGrid, G.SIZE, tray, 1, 0), false);
+
+  // 3. Full board, no hammers, but player has a reroll/swap -> NOT Game Over
+  assert.equal(G.hasAvailableMovesOn(fullGrid, G.SIZE, tray, 0, 1), true);
+  assert.equal(G.isGameOverOn(fullGrid, G.SIZE, tray, 0, 1), false);
+
+  // 4. Empty board, no hammers, no rerolls -> NOT Game Over (piece fits)
+  assert.equal(G.hasAvailableMovesOn(G.makeGrid(), G.SIZE, tray, 0, 0), true);
+  assert.equal(G.isGameOverOn(G.makeGrid(), G.SIZE, tray, 0, 0), false);
 });
 
 test('tray with only null pieces has no placement', () => {
@@ -174,10 +224,17 @@ test('rotateShapeCW/CCW map asymmetric shape cells to expected coordinates (orde
   assert.deepEqual(G.rotateShapeCCW(L), [[2, 0], [1, 0], [0, 0], [2, 1]]);
 });
 
-test('calculateComboScore caps line bonus at 4+ lines', () => {
-  assert.equal(G.calculateComboScore(4, 32, 0, 1), 32 * 2 + 1000);
-  assert.equal(G.calculateComboScore(5, 40, 0, 1), 40 * 2 + 1000); // 5+ linija = isti 1000 bonus
-  assert.equal(G.calculateComboScore(8, 64, 0, 1), 64 * 2 + 1000);
+test('calculateComboScore calculates accurate bonus for 1, 2, 3, and 4+ lines', () => {
+  // 1 linija: 8*2 + 100 = 116
+  assert.equal(G.calculateComboScore(1, 8, 0, 1), 116);
+  // 2 linije: 16*2 + 300 = 332
+  assert.equal(G.calculateComboScore(2, 16, 0, 1), 332);
+  // 3 linije: 24*2 + 750 = 798
+  assert.equal(G.calculateComboScore(3, 24, 0, 1), 798);
+  // 4 linije: 32*2 + 1500 = 1564
+  assert.equal(G.calculateComboScore(4, 32, 0, 1), 1564);
+  // 5+ linija: 40*2 + 1500 = 1580 (isti 1500 bonus)
+  assert.equal(G.calculateComboScore(5, 40, 0, 1), 1580);
 });
 
 test('calculatePowerupRewards boundary: threshold crossed by placement points counts exactly once', () => {
@@ -245,11 +302,11 @@ test('badge getProgress computes exact progress and capped percentage', () => {
   assert.deepEqual(b10k.getProgress({}, 15000, 0), { current: 10000, target: 10000, pct: 100 });
 });
 
-test('PULSE_BONUS constants are defined with correct 2-3min intervals, 10s duration and 100 points', () => {
-  assert.equal(G.PULSE_BONUS_POINTS, 100);
+test('PULSE_BONUS constants are defined with correct 100-150s intervals, 10s duration and 250 points', () => {
+  assert.equal(G.PULSE_BONUS_POINTS, 250);
   assert.equal(G.PULSE_BONUS_DURATION_SEC, 10);
-  assert.equal(G.PULSE_BONUS_MIN_INTERVAL_MS, 120000); // 2 minutes
-  assert.equal(G.PULSE_BONUS_MAX_INTERVAL_MS, 180000); // 3 minutes
+  assert.equal(G.PULSE_BONUS_MIN_INTERVAL_MS, 100000); // 100s
+  assert.equal(G.PULSE_BONUS_MAX_INTERVAL_MS, 150000); // 150s
 });
 
 test('countBombExplosionStats: no-op when bomb cell is missing', () => {
@@ -305,4 +362,134 @@ test('countBombExplosionStats: out-of-bounds neighbours are skipped', () => {
   assert.equal(res.affected.length, 2); // samo ćelije unutar table
   assert.equal(res.rocksCrushed, 1);
   assert.equal(res.removedCount, 2);
+});
+
+test('getRockInterval scales rock frequency based on Fibonacci score tiers', () => {
+  assert.equal(G.getRockInterval(0), 10);
+  assert.equal(G.getRockInterval(1999), 10);
+  assert.equal(G.getRockInterval(2000), 9);
+  assert.equal(G.getRockInterval(3000), 8);
+  assert.equal(G.getRockInterval(5000), 7);
+  assert.equal(G.getRockInterval(8000), 6);
+  assert.equal(G.getRockInterval(13000), 5);
+  assert.equal(G.getRockInterval(20999), 5);
+  assert.equal(G.getRockInterval(21000), 4);
+  assert.equal(G.getRockInterval(33999), 4);
+  assert.equal(G.getRockInterval(34000), 3);
+});
+
+test('getRockMaxHp spawns 3 HP granite scaling with Fibonacci tiers', () => {
+  // under 5k -> always 2 HP
+  assert.equal(G.getRockMaxHp(4000, () => 0.05), 2);
+
+  // 5k-8k -> 15% chance
+  assert.equal(G.getRockMaxHp(5000, () => 0.10), 3);
+  assert.equal(G.getRockMaxHp(5000, () => 0.20), 2);
+
+  // 8k-13k -> 30% chance
+  assert.equal(G.getRockMaxHp(8000, () => 0.25), 3);
+  assert.equal(G.getRockMaxHp(8000, () => 0.35), 2);
+
+  // 13k-21k -> 40% chance
+  assert.equal(G.getRockMaxHp(13000, () => 0.35), 3);
+  assert.equal(G.getRockMaxHp(13000, () => 0.45), 2);
+
+  // 34k+ -> 60% chance
+  assert.equal(G.getRockMaxHp(34000, () => 0.55), 3);
+  assert.equal(G.getRockMaxHp(34000, () => 0.65), 2);
+});
+
+test('getFibonacciRockMilestone and spawn config calculate correct milestones', () => {
+  assert.equal(G.getFibonacciRockMilestone(500), -1);
+  assert.equal(G.getFibonacciRockMilestone(1000), 0);
+  assert.equal(G.getFibonacciRockMilestone(8000), 4);
+  assert.equal(G.getFibonacciRockMilestone(21000), 6);
+
+  // 1k -> 1 rock (2 HP)
+  assert.deepEqual(G.getFibonacciMilestoneSpawnConfig(0), [{ maxHp: 2 }]);
+  // 8k -> 1 granite (3 HP)
+  assert.deepEqual(G.getFibonacciMilestoneSpawnConfig(4), [{ maxHp: 3 }]);
+  // 21k -> 1 granite + 1 rock
+  assert.deepEqual(G.getFibonacciMilestoneSpawnConfig(6), [{ maxHp: 3 }, { maxHp: 2 }]);
+  // 34k -> 2 granites
+  assert.deepEqual(G.getFibonacciMilestoneSpawnConfig(7), [{ maxHp: 3 }, { maxHp: 3 }]);
+});
+
+test('getBombInterval scales countdown interval between bombs', () => {
+  // < 7k: 15..20
+  assert.equal(G.getBombInterval(0, () => 0), 15);
+  assert.equal(G.getBombInterval(5000, () => 0.99), 20);
+
+  // 7k..20k: 12..16
+  assert.equal(G.getBombInterval(7000, () => 0), 12);
+  assert.equal(G.getBombInterval(15000, () => 0.99), 16);
+
+  // 20k+: 10..13
+  assert.equal(G.getBombInterval(20000, () => 0), 10);
+  assert.equal(G.getBombInterval(50000, () => 0.99), 13);
+});
+
+test('getBombInitialTimer provides 2-tick fast bombs on higher scores', () => {
+  // < 7k -> always 3
+  assert.equal(G.getBombInitialTimer(0, () => 0.1), 3);
+  assert.equal(G.getBombInitialTimer(6999, () => 0.1), 3);
+
+  // 7k..20k -> 30% chance for 2
+  assert.equal(G.getBombInitialTimer(7000, () => 0.25), 2);
+  assert.equal(G.getBombInitialTimer(7000, () => 0.35), 3);
+
+  // 20k+ -> 50% chance for 2
+  assert.equal(G.getBombInitialTimer(20000, () => 0.45), 2);
+  assert.equal(G.getBombInitialTimer(20000, () => 0.55), 3);
+});
+
+test('getMilestoneHazardLevel detects reached milestone index', () => {
+  assert.equal(G.getMilestoneHazardLevel(0), -1);
+  assert.equal(G.getMilestoneHazardLevel(9999), -1);
+  assert.equal(G.getMilestoneHazardLevel(10000), 0);
+  assert.equal(G.getMilestoneHazardLevel(24999), 0);
+  assert.equal(G.getMilestoneHazardLevel(25000), 1);
+  assert.equal(G.getMilestoneHazardLevel(50000), 2);
+  assert.equal(G.getMilestoneHazardLevel(100000), 3);
+});
+
+test('findRandomFreeCell finds available coordinate or returns null if grid is full', () => {
+  const grid = G.makeGrid(2);
+  // Full grid except [1][0]
+  grid[0][0] = { color: '#fff', hp: 1, maxHp: 1 };
+  grid[0][1] = { color: '#fff', hp: 1, maxHp: 1 };
+  grid[1][1] = { color: '#fff', hp: 1, maxHp: 1 };
+
+  const freeCell = G.findRandomFreeCell(grid, 2, () => 0);
+  assert.deepEqual(freeCell, { r: 1, c: 0 });
+
+  grid[1][0] = { color: '#fff', hp: 1, maxHp: 1 };
+  assert.equal(G.findRandomFreeCell(grid, 2), null);
+});
+
+test('getCompletedLinesForPlacement identifies rows and columns that will be cleared', () => {
+  const grid = G.makeGrid(4);
+  // Row 1 has 3 filled cells (cols 0, 1, 2)
+  grid[1][0] = { color: '#fff', hp: 1, maxHp: 1 };
+  grid[1][1] = { color: '#fff', hp: 1, maxHp: 1 };
+  grid[1][2] = { color: '#fff', hp: 1, maxHp: 1 };
+
+  // Placing 1x1 block at (1, 3) completes row 1
+  const dot = [[0, 0]];
+  const res1 = G.getCompletedLinesForPlacement(grid, 4, dot, 1, 3);
+  assert.deepEqual(res1.rows, [1]);
+  assert.deepEqual(res1.cols, []);
+  assert.equal(res1.cells.length, 4); // all 4 cells in row 1
+
+  // Placing 1x1 block at (0, 0) completes nothing
+  const res2 = G.getCompletedLinesForPlacement(grid, 4, dot, 0, 0);
+  assert.deepEqual(res2.rows, []);
+  assert.deepEqual(res2.cols, []);
+  assert.equal(res2.cells.length, 0);
+
+  // Invalid placement returns empty
+  const res3 = G.getCompletedLinesForPlacement(grid, 4, dot, 1, 0); // occupied
+  assert.deepEqual(res3.rows, []);
+  assert.deepEqual(res3.cols, []);
+  assert.equal(res3.cells.length, 0);
 });

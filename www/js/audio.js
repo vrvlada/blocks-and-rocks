@@ -10,8 +10,22 @@ let muted = localStorage.getItem('blocksrocks_muted') === '1';
 let hapticMode = localStorage.getItem('blocksrocks_haptic') || 'medium';
 let _getT = () => ({}); // () => TRANSLATIONS[currentLang]
 
+let worldRecordAudio = null;
+
+function getWorldRecordAudio() {
+  if (!worldRecordAudio && typeof Audio !== 'undefined') {
+    try {
+      worldRecordAudio = new Audio('./assets/new_world_record.mp3');
+      worldRecordAudio.preload = 'auto';
+    } catch (_) {}
+  }
+  return worldRecordAudio;
+}
+
 export function initAudio({ getT } = {}){
   if (getT) _getT = getT;
+  // Preload world record audio
+  getWorldRecordAudio();
   // Unlock audio on first user gesture for mobile / WebView
   window.addEventListener('pointerdown', unlockAudio, { once: true });
   window.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
@@ -30,6 +44,10 @@ function unlockAudio(){
   if(audioCtx && audioCtx.state === 'suspended'){
     audioCtx.resume().catch(()=>{});
   }
+  try {
+    const audio = getWorldRecordAudio();
+    if (audio && typeof audio.load === 'function') audio.load();
+  } catch(_){}
 }
 
 export function playTone(freq, duration, type, vol){
@@ -140,6 +158,35 @@ export function sfxNewBest(){
   });
   haptic('success');
 }
+export function sfxWorldRecord(){
+  if(muted) return;
+  try {
+    const audio = getWorldRecordAudio();
+    if (audio) {
+      audio.currentTime = 0;
+      const p = audio.play();
+      if (p && typeof p.catch === 'function') {
+        p.catch((e) => {
+          console.warn('[B&R] Error playing new world record audio, trying fallback:', e);
+          try {
+            const fallback = new Audio('new world record.mp3');
+            fallback.play().catch(()=>{});
+          } catch(_){}
+        });
+      }
+    }
+  } catch(err) {
+    console.warn('[B&R] sfxWorldRecord error:', err);
+  }
+  // Fanfare accompanied with voice
+  const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+  notes.forEach((freq, i) => {
+    setTimeout(() => {
+      playTone(freq, 0.22 + i * 0.04, 'triangle', 0.15);
+    }, i * 80);
+  });
+  haptic('success');
+}
 export function sfxBadgeUnlock(){
   const notes = [587.33, 739.99, 880.00, 1174.66]; // D5, F#5, A5, D6 heroic fanfare
   notes.forEach((freq, i) => {
@@ -179,4 +226,33 @@ export function sfxGameOver(){
   setTimeout(()=> playTone(370, 0.2, 'sine', 0.1), 150);
   setTimeout(()=> playTone(300, 0.4, 'sine', 0.12), 300);
   haptic('warning');
+}
+
+/* ── ❄️ Milestone Level Up & Ice Hazard SFX ── */
+export function sfxLevelUp(){
+  const notes = [440.00, 554.37, 659.25, 880.00, 1108.73]; // A4, C#5, E5, A5, C#6
+  notes.forEach((freq, i) => {
+    setTimeout(() => {
+      playTone(freq, 0.16 + i * 0.03, 'triangle', 0.14);
+      if(i === notes.length - 1) playTone(freq * 1.25, 0.35, 'sine', 0.12);
+    }, i * 75);
+  });
+  haptic('heavy');
+}
+
+export function sfxIceCrack(){
+  playTone(1200, 0.04, 'sawtooth', 0.09);
+  setTimeout(() => playTone(980, 0.05, 'triangle', 0.08), 30);
+  haptic('light');
+}
+
+export function sfxIceBreak(){
+  const notes = [1480, 1760, 2093, 2489];
+  notes.forEach((freq, i) => {
+    setTimeout(() => {
+      playTone(freq, 0.08, 'sine', 0.14);
+      playTone(freq * 0.5, 0.12, 'sawtooth', 0.06);
+    }, i * 35);
+  });
+  haptic('success');
 }

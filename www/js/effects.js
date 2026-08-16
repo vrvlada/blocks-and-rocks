@@ -70,11 +70,15 @@ export function triggerConfetti(count = 60){
 
 function animateConfetti(){
   if (!confettiCtx || confettiParticles.length === 0) {
-    if (confettiCtx && confettiCanvas) confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+    if (confettiCtx && confettiCanvas) {
+      confettiCtx.setTransform(1, 0, 0, 1, 0, 0);
+      confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+    }
     confettiRAF = null;
     return;
   }
 
+  confettiCtx.setTransform(1, 0, 0, 1, 0, 0);
   confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
 
   for (let i = confettiParticles.length - 1; i >= 0; i--) {
@@ -92,15 +96,16 @@ function animateConfetti(){
       continue;
     }
 
-    confettiCtx.save();
+    // setTransform u jednom pozivu primenjuje identitet + translaciju + rotaciju
+    const rad = (p.rotation * Math.PI) / 180;
+    const cosR = Math.cos(rad), sinR = Math.sin(rad);
     confettiCtx.globalAlpha = p.alpha;
-    confettiCtx.translate(p.x, p.y);
-    confettiCtx.rotate((p.rotation * Math.PI) / 180);
     confettiCtx.fillStyle = p.color;
+    confettiCtx.setTransform(cosR, sinR, -sinR, cosR, p.x, p.y);
     confettiCtx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.65);
-    confettiCtx.restore();
   }
 
+  confettiCtx.setTransform(1, 0, 0, 1, 0, 0);
   confettiRAF = requestAnimationFrame(animateConfetti);
 }
 
@@ -231,10 +236,51 @@ export function spawnShockwave(r,c){
   setTimeout(()=> wave.remove(), 600);
 }
 
+/* ═══ ICE SHATTER PARTICLES (Hazard block destruction) ═══ */
+export function spawnIceShatterParticles(r, c) {
+  if (!D || !D.boardEl) return;
+  const SIZE = D.SIZE;
+  const rect = D.boardEl.getBoundingClientRect();
+  const padding = 8, gap = 4;
+  const cellW = (rect.width - padding * 2 - gap * (SIZE - 1)) / SIZE;
+  const cx = rect.left + padding + c * (cellW + gap) + cellW / 2;
+  const cy = rect.top + padding + r * (cellW + gap) + cellW / 2;
+
+  const iceColors = ['#e0f2fe', '#bae6fd', '#7dd3fc', '#38bdf8', '#0284c7', '#ffffff'];
+  const count = 16;
+
+  for (let i = 0; i < count; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const sz = 3 + Math.floor(Math.random() * 6);
+    p.style.width = sz + 'px';
+    p.style.height = (sz * (0.8 + Math.random() * 0.8)) + 'px';
+    p.style.background = iceColors[Math.floor(Math.random() * iceColors.length)];
+    p.style.borderRadius = '2px';
+    p.style.boxShadow = '0 0 6px rgba(56, 189, 248, 0.85)';
+    p.style.left = (cx + (Math.random() - 0.5) * 14) + 'px';
+    p.style.top = (cy + (Math.random() - 0.5) * 14) + 'px';
+    document.body.appendChild(p);
+
+    const angle = (Math.PI * 2 * i / count) + (Math.random() - 0.5) * 0.5;
+    const dist = 24 + Math.random() * 32;
+    const dx = Math.cos(angle) * dist;
+    const dy = Math.sin(angle) * dist + 12;
+    const rot = (Math.random() * 720 - 360) | 0;
+
+    p.animate([
+      { transform: 'translate3d(0,0,0) scale(1) rotate(0deg)', opacity: 1 },
+      { transform: `translate3d(${dx}px, ${dy}px, 0) scale(0.1) rotate(${rot}deg)`, opacity: 0 }
+    ], { duration: 400 + Math.random() * 150, easing: 'cubic-bezier(.17,.67,.3,1)' });
+
+    setTimeout(() => p.remove(), 580);
+  }
+}
+
 /* ═══ DRAG SPARK TRAIL ═══ */
 let sparkThrottle = 0;
 export function spawnSpark(x, y) {
-  if (!D.getParticleTrailEnabled()) return;
+  if (!D || !D.getParticleTrailEnabled || !D.getParticleTrailEnabled()) return;
   sparkThrottle++;
   if (sparkThrottle % 2 !== 0) return;
   if (document.querySelectorAll('.drag-spark').length > 10) return;
