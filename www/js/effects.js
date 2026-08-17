@@ -123,12 +123,88 @@ export function showScoreFloat(points){
   const el = document.createElement('div');
   el.className = 'score-float';
   el.textContent = '+' + points;
-  const scorebox = D.scoreEl.closest('.scorebox');
-  scorebox.style.position = 'relative';
-  scorebox.appendChild(el);
-  el.style.right = '4px';
-  el.style.bottom = '100%';
-  setTimeout(()=> el.remove(), D.CONFIG.SCORE_FLOAT_DURATION);
+  const scorebox = D && D.scoreEl ? D.scoreEl.closest('.scorebox') : null;
+  if(scorebox){
+    scorebox.style.position = 'relative';
+    scorebox.appendChild(el);
+    el.style.right = '4px';
+    el.style.bottom = '100%';
+  }
+  setTimeout(()=> el.remove(), (D && D.CONFIG && D.CONFIG.SCORE_FLOAT_DURATION) || 1200);
+}
+
+/* ═══ BIG COMBO ROLLING BONUS COUNTER (Arkadni rastući brojač) ═══ */
+export function showBigComboBonusCounter(bonus, comboStreak = 1, linesCleared = 1, customLabel = null){
+  if(bonus <= 0) return;
+  const board = (D && D.boardEl) || document.getElementById('board');
+  if(!board) return;
+
+  const existing = document.querySelector('.combo-bonus-popup');
+  if(existing) existing.remove();
+
+  const popup = document.createElement('div');
+  popup.className = 'combo-bonus-popup' + (comboStreak >= 3 || bonus >= 500 ? ' mega-combo' : '');
+
+  // Oznaka / značka iznad brojača
+  const label = document.createElement('div');
+  label.className = 'combo-bonus-label';
+  if(customLabel){
+    label.innerHTML = customLabel;
+  } else if(comboStreak > 1) {
+    label.innerHTML = `🔥 KOMBO NIZ <span class="combo-x">x${comboStreak}</span>`;
+  } else if(linesCleared > 1) {
+    label.innerHTML = `⚡ MULTI-LINIJA <span class="combo-x">x${linesCleared}</span>`;
+  } else {
+    label.textContent = '✨ BONUS POENI';
+  }
+  popup.appendChild(label);
+
+  // Veliki broj
+  const numEl = document.createElement('div');
+  numEl.className = 'combo-bonus-number';
+  numEl.textContent = '+0';
+  popup.appendChild(numEl);
+
+  const rect = board.getBoundingClientRect();
+  popup.style.left = (rect.left + rect.width / 2) + 'px';
+  popup.style.top = (rect.top + rect.height * 0.42) + 'px';
+  document.body.appendChild(popup);
+
+  if(_reducedMotion()){
+    numEl.textContent = '+' + bonus;
+    setTimeout(() => {
+      popup.classList.add('fly-out');
+      setTimeout(() => popup.remove(), 350);
+    }, 600);
+    return;
+  }
+
+  // Brzo odbrojavanje od +0 do ciljanog bonusa (npr. +500)
+  const duration = Math.min(550, Math.max(280, bonus * 0.9)); // 280ms - 550ms
+  const startTime = performance.now();
+
+  function tick(now){
+    const elapsed = now - startTime;
+    const progress = Math.min(1, elapsed / duration);
+    // Ease-out cubic za sočan završetak
+    const ease = 1 - Math.pow(1 - progress, 3);
+    const currentVal = Math.round(ease * bonus);
+
+    numEl.textContent = '+' + currentVal;
+
+    if(progress < 1){
+      requestAnimationFrame(tick);
+    } else {
+      numEl.textContent = '+' + bonus;
+      popup.classList.add('finished');
+      setTimeout(()=>{
+        popup.classList.add('fly-out');
+        setTimeout(() => popup.remove(), 380);
+      }, 400);
+    }
+  }
+
+  requestAnimationFrame(tick);
 }
 
 

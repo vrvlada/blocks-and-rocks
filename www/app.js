@@ -5,7 +5,7 @@ import { initAudio, haptic, setMuted, toggleMute, isMuted, getHapticMode, setHap
          sfxPlace, sfxClear, sfxBomb, sfxHammer, sfxRockCrack, sfxRockBreak, sfxReroll, sfxRotate, sfxNewBest, sfxWorldRecord,
          sfxLevelUp, sfxIceCrack, sfxIceBreak,
          playComboAudio, sfxGameOver, sfxBonusGem } from './js/audio.js';
-import { initEffects, triggerScreenShake, triggerConfetti, showScoreFloat, spawnParticles,
+import { initEffects, triggerScreenShake, triggerConfetti, showScoreFloat, showBigComboBonusCounter, spawnParticles,
          spawnCrackParticles, spawnShockwave, spawnSpark, spawnIceShatterParticles } from './js/effects.js';
 import { initLeaderboard, updateBottomRecords, fetchMyTop3, getCachedGlobalTopScore } from './js/leaderboard.js';
 import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } from './js/achievements.js';
@@ -2723,6 +2723,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const bonus = GameCore.calculateComboScore(linesCleared, removedCount, crackedCount, comboStreak);
     score += bonus;
     showScoreFloat(bonus);
+    if(bonus > 0 && typeof showBigComboBonusCounter === 'function'){
+      showBigComboBonusCounter(bonus, comboStreak, linesCleared);
+    }
     if(score > personalBest){
       savePersonalBest(score);
       if(fb_db && firebaseReady && fb_userId){

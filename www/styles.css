@@ -1674,6 +1674,97 @@
     color: #fbbf24;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
   }
+
+  /* ═══════════════════════════════════════════════
+   *  BIG ARCADE COMBO BONUS POPUP (ROLLING COUNTER)
+   * ═══════════════════════════════════════════════ */
+  .combo-bonus-popup {
+    position: fixed;
+    transform: translate(-50%, -50%) scale(0.6);
+    z-index: 9500;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    animation: comboPopupEntrance 0.28s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.8));
+  }
+
+  @keyframes comboPopupEntrance {
+    0% {
+      transform: translate(-50%, -50%) scale(0.35) rotate(-5deg);
+      opacity: 0;
+    }
+    70% {
+      transform: translate(-50%, -50%) scale(1.15) rotate(1.5deg);
+      opacity: 1;
+    }
+    100% {
+      transform: translate(-50%, -50%) scale(1) rotate(0deg);
+      opacity: 1;
+    }
+  }
+
+  .combo-bonus-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: #fbbf24;
+    text-shadow: 0 0 12px rgba(251, 191, 36, 0.8), 0 2px 4px rgba(0, 0, 0, 0.9);
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    background: rgba(15, 23, 42, 0.9);
+    padding: 3px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(251, 191, 36, 0.5);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+  }
+
+  .combo-bonus-label .combo-x {
+    color: #ef4444;
+    font-size: 15px;
+    font-weight: 900;
+  }
+
+  .combo-bonus-number {
+    font-family: 'Outfit', 'Space Grotesk', -apple-system, sans-serif;
+    font-size: 54px;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, #ffffff 0%, #fef08a 25%, #fbbf24 60%, #f97316 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 20px rgba(251, 191, 36, 0.9)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.95));
+    transform: scale(1);
+  }
+
+  .combo-bonus-popup.mega-combo .combo-bonus-number {
+    font-size: 64px;
+    background: linear-gradient(135deg, #ffffff 0%, #fef08a 20%, #fb923c 55%, #ef4444 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 28px rgba(239, 68, 68, 0.95)) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.95));
+  }
+
+  .combo-bonus-popup.finished .combo-bonus-number {
+    animation: comboBonusPulseFinish 0.28s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  @keyframes comboBonusPulseFinish {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.24); filter: drop-shadow(0 0 35px rgba(251, 191, 36, 1)) brightness(1.25); }
+    100% { transform: scale(1); }
+  }
+
+  .combo-bonus-popup.fly-out {
+    transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
+    transform: translate(-50%, -120%) scale(0.6);
+    opacity: 0;
+  }
 /* ── Performans & pristupačnost: smanji neprekidne animacije ── */
   @media (prefers-reduced-motion: reduce) {
     .stars.layer1,
