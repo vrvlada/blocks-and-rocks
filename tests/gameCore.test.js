@@ -5,9 +5,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const G = require('../www/gameCore.js');
 
-test('constants: SIZE=8, 30 shapes, 7 colors', () => {
+test('constants: SIZE=8, 29 shapes, 7 colors', () => {
   assert.equal(G.SIZE, 8);
-  assert.equal(G.SHAPES.length, 30);
+  assert.equal(G.SHAPES.length, 29);
   assert.equal(G.COLORS.length, 7);
 });
 
@@ -202,18 +202,27 @@ test('validateUsernameFormat checks length, characters and normalizes', () => {
 test('calculateComboScore scales line score with combo streak multiplier', () => {
   assert.equal(G.calculateComboScore(0, 0, 0, 1), 0);
   // 1 line cleared with 8 removed cells, streak 1 (base multiplier 1.0)
-  // base = 8*2 + 0 + 100 = 116
-  assert.equal(G.calculateComboScore(1, 8, 0, 1), 116);
-  // streak 2 -> multiplier 1.4 -> Math.floor(116 * 1.4) = 162
-  assert.equal(G.calculateComboScore(1, 8, 0, 2), 162);
-  // streak 3 -> multiplier 1.8 -> Math.floor(116 * 1.8) = 208
-  assert.equal(G.calculateComboScore(1, 8, 0, 3), 208);
+  // base = 8*2 + 0 + 200 = 216
+  assert.equal(G.calculateComboScore(1, 8, 0, 1), 216);
+  // streak 2 -> multiplier 1.8 -> Math.floor(216 * 1.8) = 388
+  assert.equal(G.calculateComboScore(1, 8, 0, 2), 388);
+  // streak 3 -> multiplier 2.6 -> Math.floor(216 * 2.6) = 561
+  assert.equal(G.calculateComboScore(1, 8, 0, 3), 561);
 });
 
-test('calculatePowerupRewards triggers rewards on 1000/2000 thresholds', () => {
-  assert.deepEqual(G.calculatePowerupRewards(500, 850), { hammersEarned: 0, rerollsEarned: 0 });
-  assert.deepEqual(G.calculatePowerupRewards(950, 1150), { hammersEarned: 1, rerollsEarned: 0 });
-  assert.deepEqual(G.calculatePowerupRewards(1900, 2100), { hammersEarned: 1, rerollsEarned: 1 });
+test('calculatePowerupRewards triggers reroll rewards on 5000 score thresholds', () => {
+  assert.deepEqual(G.calculatePowerupRewards(500, 4850), { hammersEarned: 0, rerollsEarned: 0 });
+  assert.deepEqual(G.calculatePowerupRewards(4950, 5150), { hammersEarned: 0, rerollsEarned: 1 });
+  assert.deepEqual(G.calculatePowerupRewards(4900, 10100), { hammersEarned: 0, rerollsEarned: 2 });
+});
+
+test('calculateComboHammerReward grants hammer on 5x combo streak multiples', () => {
+  assert.equal(G.calculateComboHammerReward(0), 0);
+  assert.equal(G.calculateComboHammerReward(1), 0);
+  assert.equal(G.calculateComboHammerReward(4), 0);
+  assert.equal(G.calculateComboHammerReward(5), 1);
+  assert.equal(G.calculateComboHammerReward(6), 0);
+  assert.equal(G.calculateComboHammerReward(10), 1);
 });
 
 test('rotateShapeCW/CCW map asymmetric shape cells to expected coordinates (order preserved)', () => {
@@ -225,33 +234,32 @@ test('rotateShapeCW/CCW map asymmetric shape cells to expected coordinates (orde
 });
 
 test('calculateComboScore calculates accurate bonus for 1, 2, 3, and 4+ lines', () => {
-  // 1 linija: 8*2 + 100 = 116
-  assert.equal(G.calculateComboScore(1, 8, 0, 1), 116);
-  // 2 linije: 16*2 + 300 = 332
-  assert.equal(G.calculateComboScore(2, 16, 0, 1), 332);
-  // 3 linije: 24*2 + 750 = 798
-  assert.equal(G.calculateComboScore(3, 24, 0, 1), 798);
-  // 4 linije: 32*2 + 1500 = 1564
-  assert.equal(G.calculateComboScore(4, 32, 0, 1), 1564);
-  // 5+ linija: 40*2 + 1500 = 1580 (isti 1500 bonus)
-  assert.equal(G.calculateComboScore(5, 40, 0, 1), 1580);
+  // 1 linija: 8*2 + 200 = 216
+  assert.equal(G.calculateComboScore(1, 8, 0, 1), 216);
+  // 2 linije: 16*2 + 600 = 632
+  assert.equal(G.calculateComboScore(2, 16, 0, 1), 632);
+  // 3 linije: 24*2 + 1500 = 1548
+  assert.equal(G.calculateComboScore(3, 24, 0, 1), 1548);
+  // 4 linije: 32*2 + 3000 = 3064
+  assert.equal(G.calculateComboScore(4, 32, 0, 1), 3064);
+  // 5+ linija: 40*2 + 3000 = 3080 (isti 3000 bonus)
+  assert.equal(G.calculateComboScore(5, 40, 0, 1), 3080);
 });
 
 test('calculatePowerupRewards boundary: threshold crossed by placement points counts exactly once', () => {
   // Regresija (app.js): poeni od golog postavljanja komada su ranije "trošili" prag
   // bez dodele nagrade — sada se grantPowerupRewards poziva posle SVAKE promene skora.
-  assert.deepEqual(G.calculatePowerupRewards(999, 1002), { hammersEarned: 1, rerollsEarned: 0 });
-  assert.deepEqual(G.calculatePowerupRewards(1002, 1150), { hammersEarned: 0, rerollsEarned: 0 });
+  assert.deepEqual(G.calculatePowerupRewards(4999, 5002), { hammersEarned: 0, rerollsEarned: 1 });
+  assert.deepEqual(G.calculatePowerupRewards(5002, 5150), { hammersEarned: 0, rerollsEarned: 0 });
 });
 
-test('BADGES definition includes Destroyer series and thematic badges', () => {
+test('BADGES definition includes Destroyer series (10k-100k) and thematic badges', () => {
   assert.ok(Array.isArray(G.BADGES));
-  assert.ok(G.BADGES.length >= 8);
+  assert.equal(G.BADGES.length, 14); // 10 destroyer + 4 thematic
   const ids = G.BADGES.map(b => b.id);
-  assert.ok(ids.includes('destroyer_10k'));
-  assert.ok(ids.includes('destroyer_50k'));
-  assert.ok(ids.includes('destroyer_100k'));
-  assert.ok(ids.includes('destroyer_250k'));
+  for (let k = 10; k <= 100; k += 10) {
+    assert.ok(ids.includes(`destroyer_${k}k`), `includes destroyer_${k}k`);
+  }
   assert.ok(ids.includes('rock_crusher'));
   assert.ok(ids.includes('bomb_defuser'));
   assert.ok(ids.includes('combo_master'));
@@ -269,18 +277,21 @@ test('checkNewBadges unlocks Destroyer badges based on score and personal best',
   assert.equal(un10k.length, 1);
   assert.equal(un10k[0].id, 'destroyer_10k');
 
-  // Once 10k is marked unlocked, score 25,000 does not re-unlock 10k
+  // Once 10k is marked unlocked, score 25,000 unlocks 20k Destroyer (not 10k)
   const with10k = { destroyer_10k: Date.now() };
-  assert.equal(G.checkNewBadges(with10k, {}, 25000, 25000).length, 0);
+  const un20k = G.checkNewBadges(with10k, {}, 25000, 25000);
+  assert.equal(un20k.length, 1);
+  assert.equal(un20k[0].id, 'destroyer_20k');
 
   // Score 50,000 -> unlocks 50k Destroyer
-  const un50k = G.checkNewBadges(with10k, {}, 50000, 50000);
+  const with40k = { ...with10k, destroyer_20k: Date.now(), destroyer_30k: Date.now(), destroyer_40k: Date.now() };
+  const un50k = G.checkNewBadges(with40k, {}, 50000, 50000);
   assert.equal(un50k.length, 1);
   assert.equal(un50k[0].id, 'destroyer_50k');
 
-  // Score 100,000 -> unlocks 100k Destroyer
-  const with50k = { ...with10k, destroyer_50k: Date.now() };
-  const un100k = G.checkNewBadges(with50k, {}, 100000, 100000);
+  // Score 100,000 -> unlocks 100k Grandmaster
+  const with90k = { ...with40k, destroyer_50k: Date.now(), destroyer_60k: Date.now(), destroyer_70k: Date.now(), destroyer_80k: Date.now(), destroyer_90k: Date.now() };
+  const un100k = G.checkNewBadges(with90k, {}, 100000, 100000);
   assert.equal(un100k.length, 1);
   assert.equal(un100k[0].id, 'destroyer_100k');
 });
@@ -430,17 +441,21 @@ test('getFibonacciRockMilestone and spawn config calculate correct milestones', 
 });
 
 test('getBombInterval scales countdown interval between bombs', () => {
-  // < 7k: 15..20
+  // < 3k: 15..20
   assert.equal(G.getBombInterval(0, () => 0), 15);
-  assert.equal(G.getBombInterval(5000, () => 0.99), 20);
+  assert.equal(G.getBombInterval(2999, () => 0.99), 20);
 
-  // 7k..20k: 12..16
-  assert.equal(G.getBombInterval(7000, () => 0), 12);
-  assert.equal(G.getBombInterval(15000, () => 0.99), 16);
+  // 3k..7k: 22..28 (smanjena učestalost posle 3k)
+  assert.equal(G.getBombInterval(3000, () => 0), 22);
+  assert.equal(G.getBombInterval(6999, () => 0.99), 28);
 
-  // 20k+: 10..13
-  assert.equal(G.getBombInterval(20000, () => 0), 10);
-  assert.equal(G.getBombInterval(50000, () => 0.99), 13);
+  // 7k..20k: 18..24
+  assert.equal(G.getBombInterval(7000, () => 0), 18);
+  assert.equal(G.getBombInterval(19999, () => 0.99), 24);
+
+  // 20k+: 15..20
+  assert.equal(G.getBombInterval(20000, () => 0), 15);
+  assert.equal(G.getBombInterval(50000, () => 0.99), 20);
 });
 
 test('getBombInitialTimer provides 2-tick fast bombs on higher scores', () => {

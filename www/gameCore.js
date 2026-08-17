@@ -19,7 +19,6 @@
   const COLORS = ['#5eead4', '#f472b6', '#fbbf24', '#a78bfa', '#a3e635', '#60a5fa', '#fb923c'];
 
   const SHAPES = [
-    [[0, 0]],
     [[0, 0], [0, 1]],
     [[0, 0], [1, 0]],
     [[0, 0], [0, 1], [0, 2]],
@@ -253,21 +252,29 @@
    */
   function calculateComboScore(linesCleared, removedCount, crackedCount, comboStreak) {
     if (!linesCleared || linesCleared <= 0) return 0;
-    const LINE_BONUS = [0, 100, 300, 750, 1500];
-    const lineBonus = LINE_BONUS[Math.min(linesCleared, 4)] || 1500;
+    const LINE_BONUS = [0, 200, 600, 1500, 3000];
+    const lineBonus = LINE_BONUS[Math.min(linesCleared, 4)] || 3000;
     const base = (removedCount || 0) * 2 + (crackedCount || 0) * 1 + lineBonus;
     const streak = Math.max(1, comboStreak || 1);
-    const multiplier = 1 + (streak - 1) * 0.4;
+    const multiplier = 1 + (streak - 1) * 0.8;
     return Math.floor(base * multiplier);
   }
 
   /**
-   * Proverava da li je igrač prešao prag za dobijanje novih čekića ili zamena fioke.
+   * Proverava da li je igrač prešao prag za dobijanje novih zamena fioke (na svakih 5.000 poena).
    */
   function calculatePowerupRewards(prevScore, newScore) {
-    const hammersEarned = Math.max(0, Math.floor((newScore || 0) / 1000) - Math.floor((prevScore || 0) / 1000));
-    const rerollsEarned = Math.max(0, Math.floor((newScore || 0) / 2000) - Math.floor((prevScore || 0) / 2000));
+    const hammersEarned = 0;
+    const rerollsEarned = Math.max(0, Math.floor((newScore || 0) / 5000) - Math.floor((prevScore || 0) / 5000));
     return { hammersEarned, rerollsEarned };
+  }
+
+  /**
+   * Proverava da li kombo niz donosi čekić (čekić se dobija posle 5x combo-a, tj. na svakih 5 u nizu).
+   */
+  function calculateComboHammerReward(comboStreak) {
+    if (!comboStreak || comboStreak <= 0) return 0;
+    return (comboStreak % 5 === 0) ? 1 : 0;
   }
 
   /**
@@ -286,6 +293,39 @@
       }
     },
     {
+      id: 'destroyer_20k',
+      tier: 'bronze',
+      icon: '🥉',
+      target: 20000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 20000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(20000, val), target: 20000, pct: Math.min(100, Math.round((val / 20000) * 100)) };
+      }
+    },
+    {
+      id: 'destroyer_30k',
+      tier: 'bronze',
+      icon: '🥉',
+      target: 30000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 30000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(30000, val), target: 30000, pct: Math.min(100, Math.round((val / 30000) * 100)) };
+      }
+    },
+    {
+      id: 'destroyer_40k',
+      tier: 'silver',
+      icon: '🥈',
+      target: 40000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 40000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(40000, val), target: 40000, pct: Math.min(100, Math.round((val / 40000) * 100)) };
+      }
+    },
+    {
       id: 'destroyer_50k',
       tier: 'silver',
       icon: '🥈',
@@ -297,25 +337,58 @@
       }
     },
     {
-      id: 'destroyer_100k',
+      id: 'destroyer_60k',
+      tier: 'silver',
+      icon: '🥈',
+      target: 60000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 60000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(60000, val), target: 60000, pct: Math.min(100, Math.round((val / 60000) * 100)) };
+      }
+    },
+    {
+      id: 'destroyer_70k',
       tier: 'gold',
       icon: '🥇',
+      target: 70000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 70000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(70000, val), target: 70000, pct: Math.min(100, Math.round((val / 70000) * 100)) };
+      }
+    },
+    {
+      id: 'destroyer_80k',
+      tier: 'gold',
+      icon: '🥇',
+      target: 80000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 80000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(80000, val), target: 80000, pct: Math.min(100, Math.round((val / 80000) * 100)) };
+      }
+    },
+    {
+      id: 'destroyer_90k',
+      tier: 'gold',
+      icon: '🥇',
+      target: 90000,
+      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 90000,
+      getProgress: (stats, score, pb) => {
+        const val = Math.max(score || 0, pb || 0);
+        return { current: Math.min(90000, val), target: 90000, pct: Math.min(100, Math.round((val / 90000) * 100)) };
+      }
+    },
+    {
+      id: 'destroyer_100k',
+      tier: 'diamond',
+      icon: '💎',
       target: 100000,
       check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 100000,
       getProgress: (stats, score, pb) => {
         const val = Math.max(score || 0, pb || 0);
         return { current: Math.min(100000, val), target: 100000, pct: Math.min(100, Math.round((val / 100000) * 100)) };
-      }
-    },
-    {
-      id: 'destroyer_250k',
-      tier: 'diamond',
-      icon: '💎',
-      target: 250000,
-      check: (stats, score, pb) => Math.max(score || 0, pb || 0) >= 250000,
-      getProgress: (stats, score, pb) => {
-        const val = Math.max(score || 0, pb || 0);
-        return { current: Math.min(250000, val), target: 250000, pct: Math.min(100, Math.round((val / 250000) * 100)) };
       }
     },
     {
@@ -479,19 +552,23 @@
 
   /**
    * Izračunava broj figura do sledeće bombe:
-   * < 7.000: 15-20 figura
-   * 7.000 - 19.999: 12-16 figura
-   * >= 20.000: 10-13 figura
+   * < 3.000: 15-20 figura
+   * 3.000 - 6.999: 22-28 figura (smanjena učestalost posle 3k)
+   * 7.000 - 19.999: 18-24 figura
+   * >= 20.000: 15-20 figura
    */
   function getBombInterval(score, rng = Math.random) {
     const s = Number(score) || 0;
-    if (s < 7000) {
+    if (s < 3000) {
       return 15 + Math.floor(rng() * 6); // 15 - 20
     }
-    if (s < 20000) {
-      return 12 + Math.floor(rng() * 5); // 12 - 16
+    if (s < 7000) {
+      return 22 + Math.floor(rng() * 7); // 22 - 28
     }
-    return 10 + Math.floor(rng() * 4); // 10 - 13
+    if (s < 20000) {
+      return 18 + Math.floor(rng() * 7); // 18 - 24
+    }
+    return 15 + Math.floor(rng() * 6); // 15 - 20
   }
 
   /**
@@ -622,6 +699,7 @@
     validateUsernameFormat,
     calculateComboScore,
     calculatePowerupRewards,
+    calculateComboHammerReward,
     checkNewBadges,
     getRockInterval,
     getRockMaxHp,

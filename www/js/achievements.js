@@ -94,7 +94,18 @@ export function checkAndUnlockBadges(stats, currentScore, personalBest, currentL
 /** Vraća najviši Destroyer bedž koji je igrač osvojio */
 export function getHighestBadge(stats, pb) {
   loadBadges();
-  const rankOrder = ['destroyer_250k', 'destroyer_100k', 'destroyer_50k', 'destroyer_10k'];
+  const rankOrder = [
+    'destroyer_100k',
+    'destroyer_90k',
+    'destroyer_80k',
+    'destroyer_70k',
+    'destroyer_60k',
+    'destroyer_50k',
+    'destroyer_40k',
+    'destroyer_30k',
+    'destroyer_20k',
+    'destroyer_10k'
+  ];
   for (const id of rankOrder) {
     if (unlockedBadges[id]) {
       const b = (window.GameCore && window.GameCore.BADGES) ? window.GameCore.BADGES.find(x => x.id === id) : null;

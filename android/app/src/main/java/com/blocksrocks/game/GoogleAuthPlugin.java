@@ -15,20 +15,46 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
 import com.google.android.gms.common.api.ApiException;
 import com.google.android.gms.tasks.Task;
 
-@CapacitorPlugin(name = "GoogleAuthPlugin")
+@CapacitorPlugin(name = "GoogleAuth")
 public class GoogleAuthPlugin extends Plugin {
 
+    private static final String WEB_CLIENT_ID = "556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com";
     private GoogleSignInClient googleSignInClient;
+
+    private String getServerClientId() {
+        String clientId = getConfig().getString("serverClientId");
+        if (clientId != null && !clientId.trim().isEmpty()) {
+            return clientId.trim();
+        }
+        try {
+            int resId = getContext().getResources().getIdentifier("server_client_id", "string", getContext().getPackageName());
+            if (resId != 0) {
+                return getContext().getString(resId);
+            }
+        } catch (Exception ignored) {}
+        return WEB_CLIENT_ID;
+    }
 
     private GoogleSignInClient getClient() {
         if (googleSignInClient == null) {
             GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                    .requestIdToken(getServerClientId())
                     .requestEmail()
                     .requestProfile()
                     .build();
             googleSignInClient = GoogleSignIn.getClient(getActivity(), gso);
         }
         return googleSignInClient;
+    }
+
+    @PluginMethod
+    public void initialize(PluginCall call) {
+        try {
+            getClient();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Initialize failed: " + e.getMessage(), e);
+        }
     }
 
     @PluginMethod
@@ -85,6 +111,21 @@ public class GoogleAuthPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void refresh(PluginCall call) {
+        try {
+            GoogleSignInAccount account = GoogleSignIn.getLastSignedInAccount(getContext());
+            if (account != null) {
+                JSObject ret = formatAccountResponse(account);
+                call.resolve(ret);
+            } else {
+                call.reject("No active signed in account");
+            }
+        } catch (Exception e) {
+            call.reject("Refresh failed: " + e.getMessage(), e);
+        }
+    }
+
+    @PluginMethod
     public void signOut(PluginCall call) {
         try {
             GoogleSignInClient client = getClient();
@@ -108,6 +149,12 @@ public class GoogleAuthPlugin extends Plugin {
         ret.put("familyName", account.getFamilyName() != null ? account.getFamilyName() : "");
         ret.put("photoUrl", account.getPhotoUrl() != null ? account.getPhotoUrl().toString() : "");
         ret.put("idToken", account.getIdToken() != null ? account.getIdToken() : "");
+
+        JSObject authObj = new JSObject();
+        authObj.put("idToken", account.getIdToken() != null ? account.getIdToken() : "");
+        authObj.put("accessToken", "");
+        ret.put("authentication", authObj);
+
         return ret;
     }
 }

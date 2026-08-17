@@ -31,13 +31,11 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
    * ═══════════════════════════════════════════════ */
   const appCheckSiteKey = '6LeFh4UtAAAAAHyBkW5vpD_iWNa1-uOFrCUe_T7D'; // reCAPTCHA v3 Site Key (javni — sme u kod)
 
-  // App Check DEBUG provider (samo Android/iOS native).
-  // true  → debug buildovi dobijaju token bez Play Integrity konfiguracije; pri prvom
-  //         pokretanju Firebase ispise debug token u logcat → registruj ga u
-  //         Firebase Console → App Check → Apps → Manage debug tokens.
-  // ⚠️  false → OBVEZNO za production/release (Play Store) build — debug provider
-  //         dozvoljava neverifikovane uređaje!
-  const APP_CHECK_DEBUG = true;
+  // App Check DEBUG provider (samo Android/iOS native ili localhost).
+  // false za production/release (Play Store) build — Play Integrity verifikacija.
+  // Za lokalni debug/emulator može se aktivirati preko localStorage.getItem('blocksrocks_appcheck_debug') === '1'
+  // ili ako je pokrenuto sa localhost/127.0.0.1.
+  const APP_CHECK_DEBUG = (typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) || (typeof localStorage !== 'undefined' && localStorage.getItem('blocksrocks_appcheck_debug') === '1');
 
   /* ═══════════════════════════════════════════════
    *  FIREBASE INIT & GLOBAL APP STATE
@@ -379,6 +377,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   function savePersonalBest(val){
     personalBest = val;
     localStorage.setItem('blocksrocks_personalBest', val.toString());
+    if(typeof updateBottomRecords === 'function') updateBottomRecords(false);
   }
 
   /* ═══════════════════════════════════════════════
@@ -744,7 +743,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
     try {
       const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-      const GoogleAuth = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.GoogleAuth;
+      const GoogleAuth = window.Capacitor && window.Capacitor.Plugins && (window.Capacitor.Plugins.GoogleAuth || window.Capacitor.Plugins.GoogleAuthPlugin);
 
       // 1. Native Google Sign-In on Android
       if (isNative && GoogleAuth) {
@@ -778,6 +777,15 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
             const activeUser = authResult.user || fb_auth.currentUser;
             await handleGoogleSignInSuccess(activeUser, googleUser);
+            updateGoogleLinkStatus();
+            return true;
+          } else if (googleUser && googleUser.email) {
+            console.log('[B&R] Google user signed in locally without idToken fallback:', googleUser.email);
+            localStorage.setItem('blocksrocks_googleLinked', '1');
+            localStorage.setItem('blocksrocks_googleEmail', googleUser.email);
+            if (googleUser.displayName && (!username || username.startsWith('Igrač') || username.startsWith('Player'))) {
+              await setUsername(googleUser.displayName.slice(0, 15));
+            }
             updateGoogleLinkStatus();
             return true;
           }
@@ -1197,7 +1205,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   async function initUserIdentity() {
     const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-    const GoogleAuth = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.GoogleAuth;
+    const GoogleAuth = window.Capacitor && window.Capacitor.Plugins && (window.Capacitor.Plugins.GoogleAuth || window.Capacitor.Plugins.GoogleAuthPlugin);
 
     // 1. Silent Google Account check in the background
     if (isNative && GoogleAuth) {
@@ -1242,6 +1250,14 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
               savePersonalBest(Number(data.personalBest));
               best = personalBest;
               if (bestEl) bestEl.textContent = best;
+            } else if (personalBest > (Number(data.personalBest) || 0)) {
+              userRef.set({
+                username: username.trim(),
+                countryCode: (countryCode && countryCode !== 'XX') ? countryCode : guessCountryFromDevice(),
+                personalBest: personalBest,
+                updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
+              }, { merge: true }).catch(() => {});
+              submitScore(personalBest).catch(() => {});
             }
           }
         } catch (e) {
@@ -1249,6 +1265,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         }
       }
       if (typeof fetchMyTop3 === 'function') fetchMyTop3();
+      if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
       return;
     }
 
@@ -1362,25 +1379,50 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     if(!firebaseReady || !fb_userId || !fb_db || !username || username.trim().length < 3) return;
     try {
       const raw = localStorage.getItem('blocksrocks_pendingScores');
-      if(!raw) return;
-      const queue = JSON.parse(raw);
-      if(!Array.isArray(queue) || !queue.length) return;
-
-      console.log('[B&R] Syncing ' + queue.length + ' offline score(s)...');
+      const queue = raw ? JSON.parse(raw) : [];
 
       // PRVO profil — security rules vezuju leaderboard za users/{uid}.username,
       // pa upisi bez profila (ili sa zastarelim imenom) bivaju odbijeni.
       const profileCc = (countryCode && countryCode !== 'XX') ? countryCode : guessCountryFromDevice();
-      await fb_db.collection('users').doc(fb_userId).set({
-        username: username.trim(),
-        countryCode: profileCc && profileCc.length === 2 ? profileCc : 'XX',
-        personalBest: personalBest,
-        updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-      }, { merge: true });
+      const validProfileCc = (profileCc && profileCc.length === 2 && profileCc !== 'XX') ? profileCc : 'XX';
+
+      // Proveri da li je personalBest na oblaku usklađen
+      const userRef = fb_db.collection('users').doc(fb_userId);
+      const userSnap = await userRef.get().catch(() => null);
+      const cloudPb = (userSnap && userSnap.exists) ? Number(userSnap.data().personalBest || 0) : 0;
+
+      const needsProfileUpdate = !userSnap || !userSnap.exists || (userSnap.data() && userSnap.data().username !== username.trim()) || personalBest > cloudPb;
+
+      if (needsProfileUpdate) {
+        await userRef.set({
+          username: username.trim(),
+          countryCode: validProfileCc,
+          personalBest: Math.max(personalBest, cloudPb),
+          updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
+        }, { merge: true });
+      }
+
+      if (personalBest > cloudPb) {
+        if (!queue.some(item => Number(item.score) === personalBest)) {
+          queue.push({
+            score: personalBest,
+            username: username.trim(),
+            countryCode: validProfileCc,
+            createdAt: Date.now()
+          });
+        }
+      }
+
+      if(!Array.isArray(queue) || !queue.length) {
+        if(typeof updateBottomRecords === 'function') await updateBottomRecords(true);
+        return;
+      }
+
+      console.log('[B&R] Syncing ' + queue.length + ' score(s)...');
 
       for(const item of queue){
         if(!item || !item.score || isNaN(item.score)) continue;
-        const cc = (item.countryCode && item.countryCode !== 'XX') ? item.countryCode : ((countryCode && countryCode !== 'XX') ? countryCode : guessCountryFromDevice());
+        const cc = (item.countryCode && item.countryCode !== 'XX') ? item.countryCode : validProfileCc;
         const validCc = (cc && cc.length === 2 && cc !== 'XX') ? cc : 'XX';
 
         await fb_db.collection('leaderboard').add({
@@ -1565,7 +1607,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   let grid, tray, score, best, dragging, gameOver, pieceCounter, bombCounter, nextBombAt;
   let comboStreak = 0;
-  let hammersCount = 1;
+  let hammersCount = 0;
   let rerollsCount = 1;
   let isHammerActive = false;
   let hasCelebratedNewBest = false;
@@ -1887,7 +1929,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         tray = saved.tray || [null, null, null];
         score = saved.score || 0;
         comboStreak = saved.comboStreak || 0;
-        hammersCount = typeof saved.hammersCount === 'number' ? saved.hammersCount : 1;
+        hammersCount = typeof saved.hammersCount === 'number' ? saved.hammersCount : 0;
         rerollsCount = typeof saved.rerollsCount === 'number' ? saved.rerollsCount : 1;
         pieceCounter = saved.pieceCounter || 0;
         bombCounter = saved.bombCounter || 0;
@@ -1910,7 +1952,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           grid = GameCore.makeGrid(SIZE);
           score = 0;
           comboStreak = 0;
-          hammersCount = 1;
+          hammersCount = 0;
           rerollsCount = 1;
           pieceCounter = 0;
           bombCounter = 0;
@@ -1922,7 +1964,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         grid = GameCore.makeGrid(SIZE);
         score = 0;
         comboStreak = 0;
-        hammersCount = 1;
+        hammersCount = 0;
         rerollsCount = 1;
         setHammerActive(false);
         gameOver = false;
@@ -1972,6 +2014,11 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       document.getElementById('newbestLabel').style.display = 'none';
       const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
       msgEl.textContent = (t.tips && t.tips[0]) || t.msgDefault;
+
+      if(!saved){
+        if(typeof syncOfflineScores === 'function') syncOfflineScores();
+        if(typeof updateBottomRecords === 'function') updateBottomRecords(true);
+      }
     } catch(err) {
       console.error('[B&R] Error in newGame, starting clean game:', err);
       clearGameState();
@@ -1980,7 +2027,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       refillTray();
       score = 0;
       comboStreak = 0;
-      hammersCount = 1;
+      hammersCount = 0;
       rerollsCount = 1;
       setHammerActive(false);
       updatePowerupUI();
@@ -2085,8 +2132,18 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   function refillTray(){
+    if(!tray || !Array.isArray(tray)) tray = [null, null, null];
     for(let i=0;i<tray.length;i++){
       if(!tray[i]) tray[i] = randomPiece();
+    }
+  }
+
+  function ensureTrayNotEmpty(){
+    if(gameOver) return;
+    if(!tray || !Array.isArray(tray) || tray.every(p => !p)){
+      if(!tray || !Array.isArray(tray)) tray = [null, null, null];
+      refillTray();
+      saveGameState();
     }
   }
 
@@ -2108,6 +2165,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   function checkGameOver(){
+    ensureTrayNotEmpty();
     // Game over only when no tray pieces can be placed in any rotation AND no hammers/rerolls available
     return GameCore.isGameOverOn(grid, SIZE, tray, hammersCount, rerollsCount);
   }
@@ -2408,7 +2466,10 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
     // Zajednička stagger animacija (pulse bonus, particles, clearance)
     animateStaggeredCellRemoval(affected, CONFIG.BOMB_STAGGER, CONFIG.CLEAR_ANIM_DURATION, ()=>{
+      ensureTrayNotEmpty();
       clearLines(()=>{
+        ensureTrayNotEmpty();
+        render();
         checkAndTriggerGameOver(CONFIG.GAME_OVER_DELAY_AFTER_BOMB);
       });
     });
@@ -2501,13 +2562,17 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         }
       });
       lineClearInProgress = false;
+      ensureTrayNotEmpty();
       render();
       if(onDone) onDone();
     }, totalDelay);
   }
 
   function clearLines(onCleared){
-    if(lineClearInProgress) return;
+    if(lineClearInProgress) {
+      if(onCleared) setTimeout(onCleared, 60);
+      return;
+    }
     lineClearInProgress = true;
 
     const fullRows = [];
@@ -2519,6 +2584,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       comboStreak = 0;
       updatePowerupUI();
       lineClearInProgress = false;
+      ensureTrayNotEmpty();
       render();
       if(onCleared) setTimeout(onCleared, 0);
       return;
@@ -2587,8 +2653,21 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       showMsg((tClear.msgLineClear || '✨ Linija obrisana! +') + bonus, CONFIG.MSG_DURATION_CLEAR);
     }
 
-    // Power-up nagrade (poruke odložene da ne prebiju poruku o čišćenju linija)
+    // Power-up nagrade za skor (zamene na svakih 5k poena)
     grantPowerupRewards(prevScoreBeforeLines, score, CONFIG.MSG_DURATION_CLEAR);
+
+    // Čekić se dobija posle 5x combo-a (na svakih 5 u nizu)
+    const comboHammer = (GameCore.calculateComboHammerReward)
+      ? GameCore.calculateComboHammerReward(comboStreak)
+      : ((comboStreak > 0 && comboStreak % 5 === 0) ? 1 : 0);
+    if(comboHammer > 0){
+      hammersCount += comboHammer;
+      updatePowerupUI();
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      setTimeout(() => {
+        showMsg(t.puRewardHammer || '🔨 Novi čekić osvojen! (+1)', 2200);
+      }, CONFIG.MSG_DURATION_COMBO);
+    }
   }
 
   function handleCellClick(r, c){
@@ -2814,6 +2893,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   function renderTray(){
     try {
+      ensureTrayNotEmpty();
       const existing = Array.from(trayEl.children);
       const needed = tray ? tray.length : 3;
 
@@ -3191,8 +3271,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const wasKeyboard = !!dragging.keyboard;
     if(ok){
       tray[dragging.idx] = null;
+      ensureTrayNotEmpty();
       placePiece(dragging.piece, row, col, ()=>{
-        if(tray.every(p=>!p)) refillTray();
+        ensureTrayNotEmpty();
         render();
         checkAndTriggerGameOver(CONFIG.GAME_OVER_DELAY_AFTER_CLEAR);
       });

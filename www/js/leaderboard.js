@@ -383,11 +383,28 @@ export async function updateBottomRecords(forceFetch = false) {
   if (elGlobalFlag) elGlobalFlag.textContent = '🌍';
   if (elGlobalName) elGlobalName.textContent = t.tabGlobal || 'Svet';
 
-  if (cachedCountryTop && !forceFetch) {
+  const currentUsername = (D.getUsername ? D.getUsername() : '') || '';
+  const currentPB = (D.getPersonalBest ? D.getPersonalBest() : 0) || 0;
+
+  // Optimističko osvežavanje: ako trenutni igrač ima veći ili jednak PB od keširanog rekorda
+  if (currentUsername && currentPB > 0) {
+    if (!cachedGlobalTop || currentPB >= (cachedGlobalTop.score || 0) || (cachedGlobalTop.username === currentUsername && currentPB > (cachedGlobalTop.score || 0))) {
+      cachedGlobalTop = { username: currentUsername, score: currentPB, countryCode: effectiveCode };
+      try {
+        localStorage.setItem('blocksrocks_cached_global_top', JSON.stringify(cachedGlobalTop));
+        localStorage.setItem('blocksrocks_cached_global_top_score', String(currentPB));
+      } catch(_) {}
+    }
+    if (!cachedCountryTop || currentPB >= (cachedCountryTop.score || 0) || (cachedCountryTop.username === currentUsername && currentPB > (cachedCountryTop.score || 0))) {
+      cachedCountryTop = { username: currentUsername, score: currentPB, countryCode: effectiveCode };
+    }
+  }
+
+  if (cachedCountryTop) {
     if (elCountryPlayer) elCountryPlayer.textContent = cachedCountryTop.username || '—';
     if (elCountryPoints) elCountryPoints.textContent = Number(cachedCountryTop.score || 0).toLocaleString();
   }
-  if (cachedGlobalTop && !forceFetch) {
+  if (cachedGlobalTop) {
     const gFlag = cachedGlobalTop.countryCode ? D.countryFlag(cachedGlobalTop.countryCode) + ' ' : '';
     if (elGlobalPlayer) elGlobalPlayer.textContent = gFlag + (cachedGlobalTop.username || '—');
     if (elGlobalPoints) elGlobalPoints.textContent = Number(cachedGlobalTop.score || 0).toLocaleString();
@@ -395,7 +412,6 @@ export async function updateBottomRecords(forceFetch = false) {
 
   const { firebaseReady, fb_db } = FB();
   if (!firebaseReady || !fb_db || isFetchingBottomRecords) return;
-
 
   isFetchingBottomRecords = true;
   try {
@@ -433,25 +449,33 @@ export async function updateBottomRecords(forceFetch = false) {
     const [globalDoc, countryDoc] = await Promise.all([globalPromise, countryPromise]);
 
     if (globalDoc) {
-      cachedGlobalTop = globalDoc;
+      if (currentUsername && currentPB > (globalDoc.score || 0)) {
+        cachedGlobalTop = { username: currentUsername, score: currentPB, countryCode: effectiveCode };
+      } else {
+        cachedGlobalTop = globalDoc;
+      }
       try {
-        localStorage.setItem('blocksrocks_cached_global_top', JSON.stringify(globalDoc));
-        if (typeof globalDoc.score === 'number') {
-          localStorage.setItem('blocksrocks_cached_global_top_score', String(globalDoc.score));
+        localStorage.setItem('blocksrocks_cached_global_top', JSON.stringify(cachedGlobalTop));
+        if (typeof cachedGlobalTop.score === 'number') {
+          localStorage.setItem('blocksrocks_cached_global_top_score', String(cachedGlobalTop.score));
         }
       } catch(_) {}
-      const gFlag = globalDoc.countryCode ? D.countryFlag(globalDoc.countryCode) + ' ' : '';
-      if (elGlobalPlayer) elGlobalPlayer.textContent = gFlag + (globalDoc.username || '—');
-      if (elGlobalPoints) elGlobalPoints.textContent = Number(globalDoc.score || 0).toLocaleString();
+      const gFlag = cachedGlobalTop.countryCode ? D.countryFlag(cachedGlobalTop.countryCode) + ' ' : '';
+      if (elGlobalPlayer) elGlobalPlayer.textContent = gFlag + (cachedGlobalTop.username || '—');
+      if (elGlobalPoints) elGlobalPoints.textContent = Number(cachedGlobalTop.score || 0).toLocaleString();
     } else if (!cachedGlobalTop) {
       if (elGlobalPlayer) elGlobalPlayer.textContent = '—';
       if (elGlobalPoints) elGlobalPoints.textContent = '0';
     }
 
     if (countryDoc) {
-      cachedCountryTop = countryDoc;
-      if (elCountryPlayer) elCountryPlayer.textContent = countryDoc.username || '—';
-      if (elCountryPoints) elCountryPoints.textContent = Number(countryDoc.score || 0).toLocaleString();
+      if (currentUsername && currentPB > (countryDoc.score || 0)) {
+        cachedCountryTop = { username: currentUsername, score: currentPB, countryCode: effectiveCode };
+      } else {
+        cachedCountryTop = countryDoc;
+      }
+      if (elCountryPlayer) elCountryPlayer.textContent = cachedCountryTop.username || '—';
+      if (elCountryPoints) elCountryPoints.textContent = Number(cachedCountryTop.score || 0).toLocaleString();
     } else if (!cachedCountryTop) {
       if (elCountryPlayer) elCountryPlayer.textContent = '—';
       if (elCountryPoints) elCountryPoints.textContent = '0';
