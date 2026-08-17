@@ -137,13 +137,13 @@ export function showScoreFloat(points){
 export function showBigComboBonusCounter(bonus, comboStreak = 1, linesCleared = 1, customLabel = null){
   if(bonus <= 0) return;
   const board = (D && D.boardEl) || document.getElementById('board');
-  if(!board) return;
+  const boardParent = board ? (board.parentElement || document.body) : document.body;
 
-  const existing = document.querySelector('.combo-bonus-popup');
-  if(existing) existing.remove();
+  const existing = document.querySelectorAll('.combo-bonus-popup');
+  existing.forEach(el => el.remove());
 
   const popup = document.createElement('div');
-  popup.className = 'combo-bonus-popup' + (comboStreak >= 3 || bonus >= 500 ? ' mega-combo' : '');
+  popup.className = 'combo-bonus-popup' + (comboStreak >= 2 || bonus >= 300 ? ' mega-combo' : '');
 
   // Oznaka / značka iznad brojača
   const label = document.createElement('div');
@@ -165,22 +165,19 @@ export function showBigComboBonusCounter(bonus, comboStreak = 1, linesCleared = 
   numEl.textContent = '+0';
   popup.appendChild(numEl);
 
-  const rect = board.getBoundingClientRect();
-  popup.style.left = (rect.left + rect.width / 2) + 'px';
-  popup.style.top = (rect.top + rect.height * 0.42) + 'px';
-  document.body.appendChild(popup);
+  boardParent.appendChild(popup);
 
   if(_reducedMotion()){
     numEl.textContent = '+' + bonus;
     setTimeout(() => {
       popup.classList.add('fly-out');
-      setTimeout(() => popup.remove(), 350);
-    }, 600);
+      setTimeout(() => popup.remove(), 400);
+    }, 900);
     return;
   }
 
   // Brzo odbrojavanje od +0 do ciljanog bonusa (npr. +500)
-  const duration = Math.min(550, Math.max(280, bonus * 0.9)); // 280ms - 550ms
+  const duration = Math.min(650, Math.max(380, bonus * 1.1)); // 380ms - 650ms
   const startTime = performance.now();
 
   function tick(now){
@@ -197,10 +194,11 @@ export function showBigComboBonusCounter(bonus, comboStreak = 1, linesCleared = 
     } else {
       numEl.textContent = '+' + bonus;
       popup.classList.add('finished');
+      // Drži prikazan pun iznos ~700ms pre nego što odleti nagore
       setTimeout(()=>{
         popup.classList.add('fly-out');
-        setTimeout(() => popup.remove(), 380);
-      }, 400);
+        setTimeout(() => popup.remove(), 420);
+      }, 700);
     }
   }
 
