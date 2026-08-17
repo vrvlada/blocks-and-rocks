@@ -2106,12 +2106,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     }
   }
 
-  function randomPiece(){
+  function createPieceFromShapeIndex(shapeIdx){
     pieceCounter++;
     bombCounter++;
-    const shapeIdx = (GameCore.getWeightedRandomShapeIndex)
-      ? GameCore.getWeightedRandomShapeIndex(score)
-      : Math.floor(Math.random() * SHAPES.length);
     const shape = SHAPES[shapeIdx] || SHAPES[0];
     const color = COLORS[Math.floor(Math.random() * COLORS.length)];
 
@@ -2151,10 +2148,27 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     };
   }
 
+  function randomPiece(){
+    const shapeIdx = (GameCore.getWeightedRandomShapeIndex)
+      ? GameCore.getWeightedRandomShapeIndex(score)
+      : Math.floor(Math.random() * SHAPES.length);
+    return createPieceFromShapeIndex(shapeIdx);
+  }
+
   function refillTray(){
     if(!tray || !Array.isArray(tray)) tray = [null, null, null];
-    for(let i=0;i<tray.length;i++){
-      if(!tray[i]) tray[i] = randomPiece();
+    const emptyCount = tray.filter(p => !p).length;
+
+    if (emptyCount === 3 && GameCore.generateSmartTrayShapeIndices) {
+      // Potpuno punjenje fioke (3 nova komada): koristi Smart Controlled Random po svetskom standardu
+      const shapeIndices = GameCore.generateSmartTrayShapeIndices(grid, SIZE, score);
+      for (let i = 0; i < 3; i++) {
+        tray[i] = createPieceFromShapeIndex(shapeIndices[i]);
+      }
+    } else {
+      for(let i=0;i<tray.length;i++){
+        if(!tray[i]) tray[i] = randomPiece();
+      }
     }
   }
 

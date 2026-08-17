@@ -566,3 +566,56 @@ test('getCompletedLinesForPlacement identifies rows and columns that will be cle
   assert.deepEqual(res3.cols, []);
   assert.equal(res3.cells.length, 0);
 });
+
+test('getGridOccupancy computes accurate ratio of filled cells', () => {
+  const empty = G.makeGrid(4);
+  assert.equal(G.getGridOccupancy(empty, 4), 0);
+
+  const half = G.makeGrid(4);
+  for (let r = 0; r < 2; r++) {
+    for (let c = 0; c < 4; c++) half[r][c] = { color: '#fff' };
+  }
+  assert.equal(G.getGridOccupancy(half, 4), 0.5);
+
+  const full = G.makeGrid(4);
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) full[r][c] = { color: '#fff' };
+  }
+  assert.equal(G.getGridOccupancy(full, 4), 1.0);
+});
+
+test('getShapesThatFit finds all shapes that can be placed on grid', () => {
+  // 4x4 grid full except a 1x2 slot at (0,0)-(0,1)
+  const grid = G.makeGrid(4).map(row => row.map(() => ({ color: '#fff' })));
+  grid[0][0] = null;
+  grid[0][1] = null;
+
+  const fitting = G.getShapesThatFit(grid, 4);
+  assert.ok(fitting.length > 0);
+  // 1x2 (index 0) and 2x1 (index 1 via rotation) can fit
+  assert.ok(fitting.includes(0));
+  // 3x3 big square (index 31) cannot fit
+  assert.ok(!fitting.includes(31));
+});
+
+test('generateSmartTrayShapeIndices enforces max 1 hard piece and Anti-Deadlock rule', () => {
+  // 1. Max 1 hard piece in tray
+  for (let s = 0; s <= 50000; s += 10000) {
+    const tray = G.generateSmartTrayShapeIndices(G.makeGrid(8), 8, s);
+    const hardCount = tray.filter(idx => G.SHAPE_TIERS.hard.includes(idx)).length;
+    assert.ok(hardCount <= 1, `Tray ${JSON.stringify(tray)} must contain at most 1 hard piece`);
+  }
+
+  // 2. Anti-Deadlock guarantee:
+  // Board full except 1x2 hole at (0,0)
+  const crowdedGrid = G.makeGrid(8).map(row => row.map(() => ({ color: '#fff' })));
+  crowdedGrid[0][0] = null;
+  crowdedGrid[0][1] = null;
+
+  // Even if rng attempts to give impossible shapes, smart tray guarantees at least 1 fitting shape
+  const smartTray = G.generateSmartTrayShapeIndices(crowdedGrid, 8, 30000);
+  assert.ok(
+    G.trayAnyPlacementOn(crowdedGrid, 8, smartTray.map(idx => G.SHAPES[idx])),
+    'Smart tray must guarantee at least one valid move on non-full grid (Anti-Deadlock)'
+  );
+});

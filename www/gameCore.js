@@ -118,7 +118,9 @@
   function trayAnyPlacementOn(grid, size, tray) {
     if (!tray || !Array.isArray(tray)) return false;
     for (const p of tray) {
-      if (p && p.shape && pieceAnyPlacementOn(grid, size, p.shape)) return true;
+      if (!p) continue;
+      const shape = (p && p.shape) ? p.shape : p;
+      if (Array.isArray(shape) && pieceAnyPlacementOn(grid, size, shape)) return true;
     }
     return false;
   }
@@ -568,6 +570,95 @@
   };
 
   /**
+   * Izračunava udeo popunjenih ćelija na tabli (0.0 do 1.0).
+   */
+  function getGridOccupancy(grid, size) {
+    size = size || SIZE;
+    if (!grid) return 0;
+    let occupied = 0;
+    for (let r = 0; r < size; r++) {
+      if (!grid[r]) continue;
+      for (let c = 0; c < size; c++) {
+        if (grid[r][c]) occupied++;
+      }
+    }
+    return occupied / (size * size);
+  }
+
+  /**
+   * Vraća listu indeksa figura iz `shapesList` (ili SHAPES) koje fizički mogu da se smeste na tablu
+   * u bar jednoj od 4 rotacije.
+   */
+  function getShapesThatFit(grid, size, shapesList) {
+    size = size || SIZE;
+    const list = shapesList || SHAPES;
+    const fitting = [];
+    for (let i = 0; i < list.length; i++) {
+      if (pieceAnyPlacementOn(grid, size, list[i])) {
+        fitting.push(i);
+      }
+    }
+    return fitting;
+  }
+
+  /**
+   * Generiše 3 indeksa figura za fioku prateći svetski industrijski standard (Controlled Random):
+   * 1. Kompozicija fioke: maksimalno 1 Hard komad (nema spama glomaznih 3x3).
+   * 2. Svest o popunjenosti table (Board density awareness): na velikoj popunjenosti (> 65%) daje spasonosne komade.
+   * 3. Anti-Deadlock garancija: garantuje da najmanje 1 od 3 komada MOŽE da stane na tablu (ako prostor uopšte postoji).
+   */
+  function generateSmartTrayShapeIndices(grid, size, score, rng = Math.random) {
+    size = size || SIZE;
+    const s = Number(score) || 0;
+    const occupancy = getGridOccupancy(grid, size);
+
+    // 1. Biranje 3 komada uz kontrolisanu kompoziciju
+    const pickFromPool = (pool) => {
+      const idx = Math.floor(rng() * pool.length);
+      return pool[idx] !== undefined ? pool[idx] : 0;
+    };
+
+    let s0, s1, s2;
+
+    if (occupancy >= 0.70) {
+      // Kritična situacija (> 70% puno): 2 laka (linije/uglovi) + 1 srednji (spasavanje table)
+      s0 = pickFromPool(SHAPE_TIERS.easy);
+      s1 = pickFromPool(SHAPE_TIERS.easy);
+      s2 = pickFromPool(SHAPE_TIERS.medium);
+    } else if (occupancy >= 0.50) {
+      // Srednja popunjenost: 1 lak + 1 srednji + (1 srednji ili 1 hard)
+      s0 = pickFromPool(SHAPE_TIERS.easy);
+      s1 = pickFromPool(SHAPE_TIERS.medium);
+      const allowHard = (s >= 10000 && rng() < 0.35);
+      s2 = allowHard ? pickFromPool(SHAPE_TIERS.hard) : pickFromPool(SHAPE_TIERS.medium);
+    } else {
+      // Čista tabla (< 50% puno): veći pritisak i izazov
+      s0 = (s < 5000) ? pickFromPool(SHAPE_TIERS.easy) : (rng() < 0.5 ? pickFromPool(SHAPE_TIERS.easy) : pickFromPool(SHAPE_TIERS.medium));
+      s1 = pickFromPool(SHAPE_TIERS.medium);
+      const allowHard = (s >= 5000 && rng() < 0.45);
+      s2 = allowHard ? pickFromPool(SHAPE_TIERS.hard) : pickFromPool(SHAPE_TIERS.medium);
+    }
+
+    const trayShapes = [s0, s1, s2];
+
+    // 2. Anti-Deadlock pravilo: proveri da li bar 1 od 3 komada može da se smesti na tablu
+    const trayPieces = trayShapes.map(idx => SHAPES[idx]);
+    if (grid && !trayAnyPlacementOn(grid, size, trayPieces)) {
+      const fitting = getShapesThatFit(grid, size, SHAPES);
+      if (fitting.length > 0) {
+        // Prioritet dajemo lakšim i srednjim figurama koje staju
+        const easyFit = fitting.filter(idx => SHAPE_TIERS.easy.includes(idx));
+        const medFit = fitting.filter(idx => SHAPE_TIERS.medium.includes(idx));
+        const pool = easyFit.length > 0 ? easyFit : (medFit.length > 0 ? medFit : fitting);
+        const fitChoice = pool[Math.floor(rng() * pool.length)];
+        trayShapes[0] = fitChoice;
+      }
+    }
+
+    return trayShapes;
+  }
+
+  /**
    * Bira indeks figure iz SHAPES niza na osnovu dinamičke raspodele težine po skoru:
    * < 5.000: 50% Easy, 40% Medium, 10% Hard
    * 5.000 - 14.999: 30% Easy, 50% Medium, 20% Hard
@@ -823,6 +914,9 @@
     getRockCountForPiece,
     applyBombExplosionHazard,
     findRandomFreeCell,
+    getGridOccupancy,
+    getShapesThatFit,
+    generateSmartTrayShapeIndices,
     getCompletedLinesForPlacement,
   };
 });
