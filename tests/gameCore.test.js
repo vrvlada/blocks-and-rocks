@@ -5,10 +5,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const G = require('../www/gameCore.js');
 
-test('constants: SIZE=8, 29 shapes, 7 colors', () => {
+test('constants: SIZE=8, 35 shapes, 7 colors', () => {
   assert.equal(G.SIZE, 8);
-  assert.equal(G.SHAPES.length, 29);
+  assert.equal(G.SHAPES.length, 35);
   assert.equal(G.COLORS.length, 7);
+  assert.equal(G.MAX_HAMMERS, 2);
+  assert.equal(G.MAX_REROLLS, 2);
 });
 
 test('all shapes fit inside the board and are non-empty', () => {
@@ -445,31 +447,73 @@ test('getBombInterval scales countdown interval between bombs', () => {
   assert.equal(G.getBombInterval(0, () => 0), 15);
   assert.equal(G.getBombInterval(2999, () => 0.99), 20);
 
-  // 3k..7k: 22..28 (smanjena učestalost posle 3k)
-  assert.equal(G.getBombInterval(3000, () => 0), 22);
-  assert.equal(G.getBombInterval(6999, () => 0.99), 28);
+  // 3k..7k: 20..25
+  assert.equal(G.getBombInterval(3000, () => 0), 20);
+  assert.equal(G.getBombInterval(6999, () => 0.99), 25);
 
-  // 7k..20k: 18..24
-  assert.equal(G.getBombInterval(7000, () => 0), 18);
-  assert.equal(G.getBombInterval(19999, () => 0.99), 24);
+  // 7k..20k: 16..22
+  assert.equal(G.getBombInterval(7000, () => 0), 16);
+  assert.equal(G.getBombInterval(19999, () => 0.99), 22);
 
-  // 20k+: 15..20
-  assert.equal(G.getBombInterval(20000, () => 0), 15);
-  assert.equal(G.getBombInterval(50000, () => 0.99), 20);
+  // 20k+: 12..18
+  assert.equal(G.getBombInterval(20000, () => 0), 12);
+  assert.equal(G.getBombInterval(50000, () => 0.99), 18);
 });
 
-test('getBombInitialTimer provides 2-tick fast bombs on higher scores', () => {
-  // < 7k -> always 3
-  assert.equal(G.getBombInitialTimer(0, () => 0.1), 3);
-  assert.equal(G.getBombInitialTimer(6999, () => 0.1), 3);
+test('getBombInitialTimer provides turn-based countdown for bombs', () => {
+  // < 10k -> 5 turns
+  assert.equal(G.getBombInitialTimer(0, () => 0.1), 5);
+  assert.equal(G.getBombInitialTimer(9999, () => 0.1), 5);
 
-  // 7k..20k -> 30% chance for 2
-  assert.equal(G.getBombInitialTimer(7000, () => 0.25), 2);
-  assert.equal(G.getBombInitialTimer(7000, () => 0.35), 3);
+  // 10k..25k -> 4 turns
+  assert.equal(G.getBombInitialTimer(10000, () => 0.1), 4);
+  assert.equal(G.getBombInitialTimer(24999, () => 0.1), 4);
 
-  // 20k+ -> 50% chance for 2
-  assert.equal(G.getBombInitialTimer(20000, () => 0.45), 2);
-  assert.equal(G.getBombInitialTimer(20000, () => 0.55), 3);
+  // 25k..40k -> 3 turns
+  assert.equal(G.getBombInitialTimer(25000, () => 0.1), 3);
+  assert.equal(G.getBombInitialTimer(39999, () => 0.1), 3);
+
+  // >= 40k -> 30% chance for 2 turns, else 3
+  assert.equal(G.getBombInitialTimer(40000, () => 0.25), 2);
+  assert.equal(G.getBombInitialTimer(40000, () => 0.35), 3);
+});
+
+test('getWeightedRandomShapeIndex shifts probability to heavier shapes on higher scores', () => {
+  // Low score (< 5k): 50% easy, 40% med, 10% hard
+  const hardIdx = G.getWeightedRandomShapeIndex(0, () => 0.05); // < 0.10 -> hard
+  assert.ok(G.SHAPE_TIERS.hard.includes(hardIdx));
+
+  const medIdx = G.getWeightedRandomShapeIndex(0, () => 0.30); // 0.10..0.50 -> medium
+  assert.ok(G.SHAPE_TIERS.medium.includes(medIdx));
+
+  const easyIdx = G.getWeightedRandomShapeIndex(0, () => 0.80); // >= 0.50 -> easy
+  assert.ok(G.SHAPE_TIERS.easy.includes(easyIdx));
+
+  // High score (>= 30k): 40% hard
+  const highHardIdx = G.getWeightedRandomShapeIndex(35000, () => 0.35); // < 0.40 -> hard
+  assert.ok(G.SHAPE_TIERS.hard.includes(highHardIdx));
+});
+
+test('getRockCountForPiece spawns 2 rocks on piece at high scores (>= 15k)', () => {
+  assert.equal(G.getRockCountForPiece(5000, 4, () => 0.1), 1);
+  assert.equal(G.getRockCountForPiece(15000, 1, () => 0.1), 1); // piece length 1 -> only 1 rock
+  assert.equal(G.getRockCountForPiece(15000, 3, () => 0.2), 2); // 40% chance (< 0.4) -> 2 rocks
+  assert.equal(G.getRockCountForPiece(15000, 3, () => 0.6), 1); // >= 0.4 -> 1 rock
+});
+
+test('applyBombExplosionHazard (Option A) creates rocks and rubble in 3x3 blast', () => {
+  const grid = G.makeGrid(4);
+  grid[1][1] = { bomb: true, timer: 1, hp: 1, maxHp: 1 };
+  grid[1][2] = { color: '#ff0', hp: 1, maxHp: 1 }; // regular block
+
+  const result = G.applyBombExplosionHazard(grid, 4, 1, 1, () => 0.2); // rng < 0.5 creates rubble on empty cells
+  assert.ok(result.affectedCells.length > 0);
+  // Bomb center becomes 2 HP rock
+  assert.equal(grid[1][1].isRock, true);
+  assert.equal(grid[1][1].hp, 2);
+  // Neighbouring block became 1 HP rock
+  assert.equal(grid[1][2].isRock, true);
+  assert.equal(grid[1][2].hp, 1);
 });
 
 test('getMilestoneHazardLevel detects reached milestone index', () => {

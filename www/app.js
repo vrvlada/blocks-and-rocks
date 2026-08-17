@@ -1687,20 +1687,21 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const rewards = GameCore.calculatePowerupRewards(prevScore, newScore);
     if(rewards.hammersEarned <= 0 && rewards.rerollsEarned <= 0) return;
     const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    if(rewards.hammersEarned > 0) hammersCount += rewards.hammersEarned;
-    if(rewards.rerollsEarned > 0) rerollsCount += rewards.rerollsEarned;
-    updatePowerupUI();
-    const showHammer = ()=> showMsg(t.puRewardHammer || '🔨 Novi čekić osvojen! (+1)', 2200);
-    const showReroll = ()=> showMsg(t.puRewardReroll || '🎲 Nova zamena osvojena! (+1)', 2200);
     const delay = msgDelay || 0;
-    if(rewards.hammersEarned > 0 && rewards.rerollsEarned > 0){
-      setTimeout(showHammer, delay);
-      setTimeout(showReroll, delay + 2300);
-    } else if(rewards.hammersEarned > 0){
-      setTimeout(showHammer, delay);
-    } else {
-      setTimeout(showReroll, delay);
+
+    const maxR = GameCore.MAX_REROLLS || 2;
+    if(rewards.rerollsEarned > 0){
+      if(rerollsCount < maxR){
+        rerollsCount = Math.min(maxR, rerollsCount + rewards.rerollsEarned);
+        setTimeout(() => showMsg(t.puRewardReroll || '🎲 Nova zamena osvojena! (+1)', 2200), delay);
+      } else {
+        const overflow = (GameCore.POWERUP_OVERFLOW_POINTS || 500) * rewards.rerollsEarned;
+        score += overflow;
+        showScoreFloat(overflow);
+        setTimeout(() => showMsg(t.puRerollCapped || '🎲 Zamene pune (max 2)! +500 PTS', 2200), delay);
+      }
     }
+    updatePowerupUI();
   }
 
   function setHammerActive(active){
@@ -2108,27 +2109,46 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   function randomPiece(){
     pieceCounter++;
     bombCounter++;
-    const shape = SHAPES[Math.floor(Math.random()*SHAPES.length)];
-    const color = COLORS[Math.floor(Math.random()*COLORS.length)];
+    const shapeIdx = (GameCore.getWeightedRandomShapeIndex)
+      ? GameCore.getWeightedRandomShapeIndex(score)
+      : Math.floor(Math.random() * SHAPES.length);
+    const shape = SHAPES[shapeIdx] || SHAPES[0];
+    const color = COLORS[Math.floor(Math.random() * COLORS.length)];
 
     const rockInterval = GameCore.getRockInterval(score);
-    let stoneIndex = (pieceCounter % rockInterval === 0) ? Math.floor(Math.random()*shape.length) : null;
+    let stoneIndices = [];
+    if (pieceCounter % rockInterval === 0) {
+      const rockCount = (GameCore.getRockCountForPiece) ? GameCore.getRockCountForPiece(score, shape.length) : 1;
+      const available = Array.from({length: shape.length}, (_, i) => i);
+      for (let k = 0; k < rockCount && available.length > 0; k++) {
+        const pickIdx = Math.floor(Math.random() * available.length);
+        stoneIndices.push(available.splice(pickIdx, 1)[0]);
+      }
+    }
+    let stoneIndex = stoneIndices.length > 0 ? stoneIndices[0] : null;
     let stoneMaxHp = stoneIndex !== null ? GameCore.getRockMaxHp(score) : 1;
     let bombIndex = null;
-    let bombInitialTimer = 3;
+    let bombInitialTimer = GameCore.getBombInitialTimer(score);
 
     if(bombCounter >= nextBombAt){
-      bombIndex = Math.floor(Math.random()*shape.length);
-      if(bombIndex === stoneIndex){
-        if(shape.length > 1) stoneIndex = (bombIndex+1) % shape.length;
-        else stoneIndex = null;
-      }
+      bombIndex = Math.floor(Math.random() * shape.length);
+      stoneIndices = stoneIndices.filter(i => i !== bombIndex);
+      stoneIndex = stoneIndices.length > 0 ? stoneIndices[0] : null;
       bombInitialTimer = GameCore.getBombInitialTimer(score);
       bombCounter = 0;
       nextBombAt = GameCore.getBombInterval(score);
     }
 
-    return {shape, color, stoneIndex, stoneMaxHp, bombIndex, bombInitialTimer, id: Math.random().toString(36).slice(2)};
+    return {
+      shape,
+      color,
+      stoneIndex,
+      stoneIndices,
+      stoneMaxHp,
+      bombIndex,
+      bombInitialTimer,
+      id: Math.random().toString(36).slice(2)
+    };
   }
 
   function refillTray(){
@@ -2205,10 +2225,10 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     let bombPos = null;
     const placedIndices = [];
     piece.shape.forEach(([r,c], i)=>{
-      const isStone = piece.stoneIndex === i;
+      const isStone = (piece.stoneIndices && piece.stoneIndices.includes(i)) || piece.stoneIndex === i;
       const isBomb = piece.bombIndex === i;
       const sHp = isStone ? (piece.stoneMaxHp || 2) : 1;
-      const bTimer = isBomb ? (piece.bombInitialTimer || 3) : undefined;
+      const bTimer = isBomb ? (piece.bombInitialTimer || 4) : undefined;
       grid[row+r][col+c] = {
         color: piece.color,
         hp: sHp,
@@ -2220,6 +2240,10 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       placedIndices.push((row+r)*SIZE + (col+c));
       if(isBomb) bombPos = {r:row+r, c:col+c};
     });
+
+    // Potezno odbrojavanje postojećih bombi na tabli
+    tickBombsOnMove();
+
     const prevScore = score;
     score += piece.shape.length;
     showScoreFloat(score - prevScore);
@@ -2382,48 +2406,37 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   const bombTickers = new Map(); // key "r_c" -> {r,c}
-  let bombInterval = null;
 
-  function ensureBombInterval(){
-    if(bombInterval || bombTickers.size === 0) return;
-    bombInterval = setInterval(tickBombs, CONFIG.BOMB_TICK_MS);
-  }
-  function stopBombInterval(){
-    if(bombInterval){
-      clearInterval(bombInterval);
-      bombInterval = null;
-    }
-  }
   function resetBombTickers(){
     bombTickers.clear();
-    stopBombInterval();
   }
-  function tickBombs(){
+
+  function tickBombsOnMove(){
     if(paused || gameOver || lineClearInProgress) return;
-    if(bombTickers.size === 0){
-      stopBombInterval();
-      return;
-    }
+    if(bombTickers.size === 0) return;
+
+    const toExplode = [];
     [...bombTickers.entries()].forEach(([key, pos])=>{
-      const d = grid[pos.r][pos.c];
+      const d = (grid && grid[pos.r]) ? grid[pos.r][pos.c] : null;
       if(!d || !d.bomb){ bombTickers.delete(key); return; }
       if(d.timer > 1){
         d.timer -= 1;
-        updateBombVisual(pos.r,pos.c);
+        updateBombVisual(pos.r, pos.c);
       } else {
         bombTickers.delete(key);
-        explodeBomb(pos.r,pos.c);
+        toExplode.push(pos);
       }
     });
-    if(bombTickers.size === 0){
-      stopBombInterval();
+
+    if(toExplode.length > 0){
+      toExplode.forEach(pos => explodeBomb(pos.r, pos.c));
     }
   }
+
   function startBombCountdown(r,c){
-    const cellData = grid[r][c];
+    const cellData = (grid && grid[r]) ? grid[r][c] : null;
     if(!cellData || !cellData.bomb) return;
     bombTickers.set(r+'_'+c, {r, c});
-    ensureBombInterval();
     updateBombVisual(r,c);
   }
 
@@ -2431,9 +2444,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const idx = r*SIZE+c;
     const el = boardEl.children[idx];
     if(!el) return;
-    const d = grid[r][c];
+    const d = (grid && grid[r]) ? grid[r][c] : null;
     if(!d) return;
-    // Critical state on the last second
+    // Critical state on the last move
     el.classList.toggle('critical', d.timer <= 1);
     let label = el.querySelector('.bomb-label');
     if(!label){
@@ -2443,48 +2456,52 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     }
     label.textContent = d.timer;
     label.classList.toggle('critical-num', d.timer <= 1);
-    // Restart the countdown "pop" animation on every tick
+    // Restart the countdown "pop" animation on every move
     label.classList.remove('pop');
     void label.offsetWidth;
     label.classList.add('pop');
   }
 
   function explodeBomb(r,c){
-    const cellData = grid[r][c];
+    const cellData = (grid && grid[r]) ? grid[r][c] : null;
     if(!cellData) return;
 
     lineClearInProgress = true;
     spawnShockwave(r,c);
     sfxBomb();
     triggerScreenShake('heavy');
+    comboStreak = 0; // Prekida se kombo niz
+    updatePowerupUI();
 
-    // Čista logika eksplozije (pokrivena testovima): uklonjeno/napuklo + uništene stene.
-    const { affected, removedCount, crackedCount, rocksCrushed } = GameCore.countBombExplosionStats(grid, SIZE, r, c);
+    // Opcija A: primena hazarda — stvaranje kamenja i ruševina
+    const { affectedCells, spawnedRocksCount } = (GameCore.applyBombExplosionHazard)
+      ? GameCore.applyBombExplosionHazard(grid, SIZE, r, c)
+      : { affectedCells: [], spawnedRocksCount: 0 };
 
-    // Očuvaj redosled "blizina = prvo" za stagger animaciju eksplozije
-    affected.sort((a,b)=> Math.hypot(a.r-r,a.c-c) - Math.hypot(b.r-r,b.c-c));
-
-    // Zajednička stagger animacija (pulse bonus, particles, clearance)
-    animateStaggeredCellRemoval(affected, CONFIG.BOMB_STAGGER, CONFIG.CLEAR_ANIM_DURATION, ()=>{
-      ensureTrayNotEmpty();
-      clearLines(()=>{
-        ensureTrayNotEmpty();
-        render();
-        checkAndTriggerGameOver(CONFIG.GAME_OVER_DELAY_AFTER_BOMB);
-      });
+    // Animacija nastanka ruševina/kamenja
+    affectedCells.forEach((pos, i)=>{
+      setTimeout(()=>{
+        const idx = pos.r*SIZE + pos.c;
+        const el = boardEl.children[idx];
+        if(el){
+          el.classList.add('pop-in');
+          setTimeout(() => el.classList.remove('pop-in'), 280);
+        }
+        spawnParticles([pos.r+'_'+pos.c], '#64748b');
+      }, i * 30);
     });
 
-    // Career stats: stene uništene eksplozijom se broje (bedž rock_crusher).
-    // Napomena: bomba koja je EKSPLODIRALA se ne računa kao "defused" (nije neutralisana).
-    if(rocksCrushed > 0) recordCareerStat('rocksCrushed', rocksCrushed);
-    const bombBonus = removedCount*2 + crackedCount*1 + 10;
-    const prevBombScore = score;
-    score += bombBonus;
-    showScoreFloat(bombBonus);
-    grantPowerupRewards(prevBombScore, score, CONFIG.MSG_DURATION_BOMB);
+    const totalAnimTime = Math.max(300, affectedCells.length * 30 + 200);
+    setTimeout(()=>{
+      lineClearInProgress = false;
+      render();
+      ensureTrayNotEmpty();
+      checkAndTriggerGameOver(CONFIG.GAME_OVER_DELAY_AFTER_BOMB);
+    }, totalAnimTime);
+
     const tBomb = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    showMsg((tBomb.msgExplosion || '💥 EKSPLOZIJA! +') + bombBonus, CONFIG.MSG_DURATION_BOMB);
-    track('bomb_explode', { bonus: bombBonus });
+    showMsg(tBomb.msgBombExplodedHazard || '💣 BOMBA JE EKSPLODIRALA! Nastao je kamen i ruševine!', 3500);
+    track('bomb_explode_hazard', { spawnedRocks: spawnedRocksCount });
   }
 
   /**
@@ -2615,7 +2632,20 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     recordCareerStat('linesCleared', linesCleared);
     if(comboStreak > 1) recordCareerStat('maxCombo', comboStreak);
     const defusedCount = cellsArr.filter(c => { const d = grid[c.r][c.c]; return d && d.bomb && c.willRemove; }).length;
-    if(defusedCount > 0) recordCareerStat('bombsDefused', defusedCount);
+    if(defusedCount > 0){
+      recordCareerStat('bombsDefused', defusedCount);
+      const defuseBonus = defusedCount * 150;
+      score += defuseBonus;
+      showScoreFloat(defuseBonus);
+      sfxBonusGem();
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      setTimeout(() => {
+        showMsg((t.msgBombDefused || '🛡️ BOMBA DEAKTIVIRANA! +%s').replace('%s', defuseBonus), 2500);
+      }, CONFIG.MSG_DURATION_CLEAR);
+      cellsArr.forEach(c => {
+        if(bombTickers.has(c.r+'_'+c.c)) bombTickers.delete(c.r+'_'+c.c);
+      });
+    }
     const rockDestroyedCount = cellsArr.filter(c => { const d = grid[c.r][c.c]; return d && d.maxHp >= 2 && c.willRemove; }).length;
     if(rockDestroyedCount > 0) recordCareerStat('rocksCrushed', rockDestroyedCount);
 
@@ -2653,20 +2683,31 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       showMsg((tClear.msgLineClear || '✨ Linija obrisana! +') + bonus, CONFIG.MSG_DURATION_CLEAR);
     }
 
-    // Power-up nagrade za skor (zamene na svakih 5k poena)
+    // Power-up nagrade za skor (zamene na svakih 5k poena sa limitom)
     grantPowerupRewards(prevScoreBeforeLines, score, CONFIG.MSG_DURATION_CLEAR);
 
-    // Čekić se dobija posle 5x combo-a (na svakih 5 u nizu)
+    // Čekić se dobija posle 5x combo-a (na svakih 5 u nizu) sa limitom na 2
     const comboHammer = (GameCore.calculateComboHammerReward)
       ? GameCore.calculateComboHammerReward(comboStreak)
       : ((comboStreak > 0 && comboStreak % 5 === 0) ? 1 : 0);
     if(comboHammer > 0){
-      hammersCount += comboHammer;
-      updatePowerupUI();
+      const maxH = GameCore.MAX_HAMMERS || 2;
       const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-      setTimeout(() => {
-        showMsg(t.puRewardHammer || '🔨 Novi čekić osvojen! (+1)', 2200);
-      }, CONFIG.MSG_DURATION_COMBO);
+      if(hammersCount < maxH){
+        hammersCount = Math.min(maxH, hammersCount + comboHammer);
+        updatePowerupUI();
+        setTimeout(() => {
+          showMsg(t.puRewardHammer || '🔨 Novi čekić osvojen! (+1)', 2200);
+        }, CONFIG.MSG_DURATION_COMBO);
+      } else {
+        const overflow = (GameCore.POWERUP_OVERFLOW_POINTS || 500) * comboHammer;
+        score += overflow;
+        showScoreFloat(overflow);
+        updatePowerupUI();
+        setTimeout(() => {
+          showMsg(t.puHammerCapped || '🔨 Čekići puni (max 2)! +500 PTS', 2200);
+        }, CONFIG.MSG_DURATION_COMBO);
+      }
     }
   }
 

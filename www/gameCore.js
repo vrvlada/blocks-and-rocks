@@ -51,6 +51,13 @@
     [[0, 1], [1, 1], [2, 1], [1, 0]],
     [[0, 0], [0, 1], [0, 2], [1, 1]],
     [[1, 0], [1, 1], [1, 2], [0, 1]],
+    // Glomazni i dugački oblici (Hard tier)
+    [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]], // 29: 1x5 line
+    [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]], // 30: 5x1 line
+    [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2], [2, 0], [2, 1], [2, 2]], // 31: 3x3 big square
+    [[0, 1], [1, 0], [1, 1], [1, 2], [2, 1]], // 32: plus/cross 5
+    [[0, 0], [0, 1], [0, 2], [1, 0], [2, 0]], // 33: L5
+    [[0, 0], [0, 1], [0, 2], [1, 2], [2, 2]], // 34: J5
   ];
 
   /** Prazna tabla size×size (svaka ćelija je `null`). */
@@ -550,12 +557,65 @@
     return [{ maxHp: 3 }, { maxHp: 3 }, { maxHp: 3 }, { maxHp: 3 }];
   }
 
+  const MAX_HAMMERS = 2;
+  const MAX_REROLLS = 2;
+  const POWERUP_OVERFLOW_POINTS = 500;
+
+  const SHAPE_TIERS = {
+    easy: [0, 1, 2, 3, 6, 7, 8, 9, 10, 21, 22],
+    medium: [4, 5, 11, 12, 13, 14, 15, 16, 17, 18, 19, 23, 24, 25, 26, 27, 28],
+    hard: [20, 29, 30, 31, 32, 33, 34]
+  };
+
+  /**
+   * Bira indeks figure iz SHAPES niza na osnovu dinamičke raspodele težine po skoru:
+   * < 5.000: 50% Easy, 40% Medium, 10% Hard
+   * 5.000 - 14.999: 30% Easy, 50% Medium, 20% Hard
+   * 15.000 - 29.999: 20% Easy, 50% Medium, 30% Hard
+   * >= 30.000: 15% Easy, 45% Medium, 40% Hard
+   */
+  function getWeightedRandomShapeIndex(score, rng = Math.random) {
+    const s = Number(score) || 0;
+    let easyW = 0.50, medW = 0.40, hardW = 0.10;
+    if (s >= 30000) {
+      easyW = 0.15; medW = 0.45; hardW = 0.40;
+    } else if (s >= 15000) {
+      easyW = 0.20; medW = 0.50; hardW = 0.30;
+    } else if (s >= 5000) {
+      easyW = 0.30; medW = 0.50; hardW = 0.20;
+    }
+
+    const r = rng();
+    let pool = SHAPE_TIERS.easy;
+    if (r < hardW) {
+      pool = SHAPE_TIERS.hard;
+    } else if (r < hardW + medW) {
+      pool = SHAPE_TIERS.medium;
+    }
+
+    const idxInPool = Math.floor(rng() * pool.length);
+    return pool[idxInPool] !== undefined ? pool[idxInPool] : 0;
+  }
+
+  /**
+   * Vraća broj kamenih blokova unutar jedne figure kada je dostignut rock interval:
+   * < 15.000: uvek 1 kamen
+   * >= 15.000: 40% šanse za 2 kamena (ako figura ima >= 2 kocke)
+   */
+  function getRockCountForPiece(score, pieceLength, rng = Math.random) {
+    const s = Number(score) || 0;
+    if (s >= 15000 && (pieceLength || 0) >= 2 && rng() < 0.40) {
+      return 2;
+    }
+    return 1;
+  }
+
   /**
    * Izračunava broj figura do sledeće bombe:
    * < 3.000: 15-20 figura
-   * 3.000 - 6.999: 22-28 figura (smanjena učestalost posle 3k)
-   * 7.000 - 19.999: 18-24 figura
-   * >= 20.000: 15-20 figura
+   * 3.000 - 6.999: 20-25 figura
+   * 7.000 - 19.999: 16-22 figura
+   * >= 20.000: 12-18 figura
    */
   function getBombInterval(score, rng = Math.random) {
     const s = Number(score) || 0;
@@ -563,25 +623,72 @@
       return 15 + Math.floor(rng() * 6); // 15 - 20
     }
     if (s < 7000) {
-      return 22 + Math.floor(rng() * 7); // 22 - 28
+      return 20 + Math.floor(rng() * 6); // 20 - 25
     }
     if (s < 20000) {
-      return 18 + Math.floor(rng() * 7); // 18 - 24
+      return 16 + Math.floor(rng() * 7); // 16 - 22
     }
-    return 15 + Math.floor(rng() * 6); // 15 - 20
+    return 12 + Math.floor(rng() * 7); // 12 - 18
   }
 
   /**
-   * Određuje početni tajmer za bombu (broj poteza):
-   * < 7.000: 3 poteza
-   * 7.000 - 19.999: 30% šanse za brzu bombu (2 poteza), inače 3
-   * >= 20.000: 50% šanse za brzu bombu (2 poteza), inače 3
+   * Određuje početni tajmer za bombu (u potezima):
+   * < 10.000: 5 poteza
+   * 10.000 - 24.999: 4 poteza
+   * 25.000 - 39.999: 3 poteza
+   * >= 40.000: 30% šanse za 2 poteza, inače 3 poteza
    */
   function getBombInitialTimer(score, rng = Math.random) {
     const s = Number(score) || 0;
-    if (s >= 20000 && rng() < 0.50) return 2;
-    if (s >= 7000 && rng() < 0.30) return 2;
-    return 3;
+    if (s >= 40000 && rng() < 0.30) return 2;
+    if (s >= 25000) return 3;
+    if (s >= 10000) return 4;
+    return 5;
+  }
+
+  /**
+   * Opcija A: Eksplozija bombe pretvara pogođenu zonu 3x3 u ruševine / kamenje
+   * umesto da je obriše.
+   * Vraća { affectedCells: Array<{r, c, hp, maxHp, wasCenter}>, spawnedRocksCount: number }
+   */
+  function applyBombExplosionHazard(grid, size, bombR, bombC, rng = Math.random) {
+    size = size || SIZE;
+    if (!grid || !grid[bombR] || !grid[bombR][bombC]) {
+      return { affectedCells: [], spawnedRocksCount: 0 };
+    }
+    const affectedCells = [];
+    let spawnedRocksCount = 0;
+
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const rr = bombR + dr, cc = bombC + dc;
+        if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
+        const isCenter = (dr === 0 && dc === 0);
+        const current = grid[rr][cc];
+
+        if (isCenter) {
+          // Centar gde je bila bomba postaje kamen 2 HP
+          grid[rr][cc] = { hp: 2, maxHp: 2, color: '#64748b', isRock: true };
+          affectedCells.push({ r: rr, c: cc, hp: 2, maxHp: 2, wasCenter: true });
+          spawnedRocksCount++;
+        } else if (current) {
+          // Postojeći običan blok se pretvara u oštećeni kamen 1 HP
+          if (!current.maxHp || current.maxHp < 2) {
+            grid[rr][cc] = { hp: 1, maxHp: 1, color: '#64748b', isRock: true };
+            affectedCells.push({ r: rr, c: cc, hp: 1, maxHp: 1, wasCenter: false });
+            spawnedRocksCount++;
+          }
+        } else {
+          // Prazno polje u radijusu ima 50% šanse da dobije ruševine (1 HP kamen)
+          if (rng() < 0.50) {
+            grid[rr][cc] = { hp: 1, maxHp: 1, color: '#64748b', isRock: true };
+            affectedCells.push({ r: rr, c: cc, hp: 1, maxHp: 1, wasCenter: false });
+            spawnedRocksCount++;
+          }
+        }
+      }
+    }
+    return { affectedCells, spawnedRocksCount };
   }
 
   /**
@@ -708,6 +815,13 @@
     getMilestoneHazardLevel,
     getFibonacciRockMilestone,
     getFibonacciMilestoneSpawnConfig,
+    MAX_HAMMERS,
+    MAX_REROLLS,
+    POWERUP_OVERFLOW_POINTS,
+    SHAPE_TIERS,
+    getWeightedRandomShapeIndex,
+    getRockCountForPiece,
+    applyBombExplosionHazard,
     findRandomFreeCell,
     getCompletedLinesForPlacement,
   };
