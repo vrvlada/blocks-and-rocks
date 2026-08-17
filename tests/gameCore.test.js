@@ -619,3 +619,29 @@ test('generateSmartTrayShapeIndices enforces max 1 hard piece and Anti-Deadlock 
     'Smart tray must guarantee at least one valid move on non-full grid (Anti-Deadlock)'
   );
 });
+
+test('getIsPieceRotationLocked and pieceAnyPlacementOn with locked rotation', () => {
+  assert.equal(G.BOARD_CLEAR_BONUS, 1000);
+
+  // < 20.000: always false
+  assert.equal(G.getIsPieceRotationLocked(0, () => 0.05), false);
+  assert.equal(G.getIsPieceRotationLocked(19999, () => 0.05), false);
+
+  // >= 20.000: 25% chance of locked (rng < 0.25)
+  assert.equal(G.getIsPieceRotationLocked(20000, () => 0.10), true);
+  assert.equal(G.getIsPieceRotationLocked(20000, () => 0.35), false);
+
+  // Grid full except vertical 1x2 hole at (0,0)-(1,0)
+  const grid = G.makeGrid(4).map(row => row.map(() => ({ color: '#fff' })));
+  grid[0][0] = null;
+  grid[1][0] = null;
+
+  // Horizontal domino [[0,0], [0,1]]
+  const horizDomino = [[0, 0], [0, 1]];
+
+  // If unlocked (default), it rotates to vertical and fits
+  assert.equal(G.pieceAnyPlacementOn(grid, 4, horizDomino, false), true);
+
+  // If locked, it CANNOT rotate and therefore fails to fit in vertical slot
+  assert.equal(G.pieceAnyPlacementOn(grid, 4, horizDomino, true), false);
+});

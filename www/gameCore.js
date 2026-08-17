@@ -97,11 +97,14 @@
   }
 
   /**
-   * Da li se oblik `shape` u BILO KOJOJ od svojih 4 rotacije (0°, 90°, 180°, 270°)
+   * Da li se oblik `shape` (u 4 rotacije, ili samo 1 rotaciji ako je isLockedRotation)
    * može postaviti bilo gde na tabli `grid`.
    */
-  function pieceAnyPlacementOn(grid, size, shape) {
+  function pieceAnyPlacementOn(grid, size, shape, isLockedRotation) {
     if (!shape || !shape.length) return false;
+    if (isLockedRotation) {
+      return anyPlacementOn(grid, size, shape);
+    }
     let current = shape;
     for (let rot = 0; rot < 4; rot++) {
       if (anyPlacementOn(grid, size, current)) return true;
@@ -112,7 +115,7 @@
 
   /**
    * Da li se makar jedan od oblika u fioci-`tray` (niz oblika, mogu biti i `null`),
-   * uzimajući u obzir sve moguće rotacije (0°, 90°, 180°, 270°), može postaviti na tablu `grid`.
+   * uzimajući u obzir dozvoljene rotacije, može postaviti na tablu `grid`.
    * Vraća `true` ako POSTOJI placement.
    */
   function trayAnyPlacementOn(grid, size, tray) {
@@ -120,7 +123,8 @@
     for (const p of tray) {
       if (!p) continue;
       const shape = (p && p.shape) ? p.shape : p;
-      if (Array.isArray(shape) && pieceAnyPlacementOn(grid, size, shape)) return true;
+      const isLocked = !!(p && p.isLockedRotation);
+      if (Array.isArray(shape) && pieceAnyPlacementOn(grid, size, shape, isLocked)) return true;
     }
     return false;
   }
@@ -562,6 +566,7 @@
   const MAX_HAMMERS = 2;
   const MAX_REROLLS = 2;
   const POWERUP_OVERFLOW_POINTS = 500;
+  const BOARD_CLEAR_BONUS = 1000;
 
   const SHAPE_TIERS = {
     easy: [0, 1, 2, 3, 6, 7, 8, 9, 10, 21, 22],
@@ -699,6 +704,19 @@
       return 2;
     }
     return 1;
+  }
+
+  /**
+   * Vraća da li je figura fiksna (zaključana za rotaciju):
+   * < 20.000: uvek slobodna rotacija
+   * >= 20.000: 25% šanse da je figura fiksirana/zaključana
+   */
+  function getIsPieceRotationLocked(score, rng = Math.random) {
+    const s = Number(score) || 0;
+    if (s >= 20000 && rng() < 0.25) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -909,9 +927,11 @@
     MAX_HAMMERS,
     MAX_REROLLS,
     POWERUP_OVERFLOW_POINTS,
+    BOARD_CLEAR_BONUS,
     SHAPE_TIERS,
     getWeightedRandomShapeIndex,
     getRockCountForPiece,
+    getIsPieceRotationLocked,
     applyBombExplosionHazard,
     findRandomFreeCell,
     getGridOccupancy,

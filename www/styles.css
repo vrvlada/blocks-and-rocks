@@ -1304,6 +1304,43 @@
     border-color: var(--accent);
     box-shadow: 0 4px 16px rgba(94, 234, 212, 0.15);
   }
+  #board.board-combo {
+    box-shadow: 0 0 24px rgba(245, 158, 11, 0.45), inset 0 0 12px rgba(245, 158, 11, 0.2);
+    border-color: rgba(245, 158, 11, 0.6);
+  }
+  #board.board-critical-bomb {
+    animation: criticalBombPulse 0.75s ease-in-out infinite alternate !important;
+    border-color: #ef4444 !important;
+  }
+  @keyframes criticalBombPulse {
+    0% {
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.45), inset 0 0 8px rgba(239, 68, 68, 0.25);
+      border-color: rgba(239, 68, 68, 0.6);
+    }
+    100% {
+      box-shadow: 0 0 28px rgba(239, 68, 68, 0.85), inset 0 0 16px rgba(239, 68, 68, 0.45);
+      border-color: #ef4444;
+    }
+  }
+
+  .slot-lock-badge {
+    position: absolute; top: 2px; right: 2px; z-index: 6;
+    width: 22px; height: 22px; min-width: 22px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 7px; border: 1px solid rgba(244, 63, 94, 0.5);
+    background: rgba(20, 10, 15, 0.9); color: #fb7185;
+    font-size: 11px; line-height: 1; cursor: pointer;
+    box-shadow: 0 0 8px rgba(244, 63, 94, 0.35);
+  }
+  .shake-piece {
+    animation: shakePiece 0.3s cubic-bezier(.36,.07,.19,.97) both;
+  }
+  @keyframes shakePiece {
+    10%, 90% { transform: translate3d(-1px, 0, 0); }
+    20%, 80% { transform: translate3d(2px, 0, 0); }
+    30%, 50%, 70% { transform: translate3d(-3px, 0, 0); }
+    40%, 60% { transform: translate3d(3px, 0, 0); }
+  }
   .bottom-rec-card.global-rec {
     border-color: rgba(251, 191, 36, 0.22);
   }

@@ -2136,6 +2136,10 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       nextBombAt = GameCore.getBombInterval(score);
     }
 
+    const isLockedRotation = (GameCore.getIsPieceRotationLocked)
+      ? GameCore.getIsPieceRotationLocked(score)
+      : false;
+
     return {
       shape,
       color,
@@ -2144,6 +2148,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       stoneMaxHp,
       bombIndex,
       bombInitialTimer,
+      isLockedRotation,
       id: Math.random().toString(36).slice(2)
     };
   }
@@ -2423,11 +2428,31 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   function resetBombTickers(){
     bombTickers.clear();
+    checkBombCriticalState();
+  }
+
+  function checkBombCriticalState(){
+    let hasCritical = false;
+    if (bombTickers && bombTickers.size > 0 && grid) {
+      for (const pos of bombTickers.values()) {
+        const d = (grid[pos.r]) ? grid[pos.r][pos.c] : null;
+        if (d && d.bomb && d.timer <= 1) {
+          hasCritical = true;
+          break;
+        }
+      }
+    }
+    if (boardEl) {
+      boardEl.classList.toggle('board-critical-bomb', hasCritical);
+    }
   }
 
   function tickBombsOnMove(){
     if(paused || gameOver || lineClearInProgress) return;
-    if(bombTickers.size === 0) return;
+    if(bombTickers.size === 0) {
+      checkBombCriticalState();
+      return;
+    }
 
     const toExplode = [];
     [...bombTickers.entries()].forEach(([key, pos])=>{
@@ -2442,6 +2467,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       }
     });
 
+    checkBombCriticalState();
+
     if(toExplode.length > 0){
       toExplode.forEach(pos => explodeBomb(pos.r, pos.c));
     }
@@ -2452,6 +2479,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     if(!cellData || !cellData.bomb) return;
     bombTickers.set(r+'_'+c, {r, c});
     updateBombVisual(r,c);
+    checkBombCriticalState();
   }
 
   function updateBombVisual(r,c){
@@ -2474,6 +2502,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     label.classList.remove('pop');
     void label.offsetWidth;
     label.classList.add('pop');
+    checkBombCriticalState();
   }
 
   function explodeBomb(r,c){
@@ -2592,6 +2621,33 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           }
         }
       });
+
+      // ── Provera za "Board Clear" (potpuno čišćenje table do praznog stanja) ──
+      const isBoardCleared = (GameCore.hasOccupiedCellsOn) ? !GameCore.hasOccupiedCellsOn(grid, SIZE) : false;
+      if(isBoardCleared){
+        const clearBonus = GameCore.BOARD_CLEAR_BONUS || 1000;
+        score += clearBonus;
+        showScoreFloat(clearBonus);
+        recordCareerStat('boardClears', 1);
+        triggerConfetti(55);
+        sfxBonusGem();
+
+        const maxH = GameCore.MAX_HAMMERS || 2;
+        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+        if(hammersCount < maxH){
+          hammersCount = Math.min(maxH, hammersCount + 1);
+        } else {
+          const overflow = GameCore.POWERUP_OVERFLOW_POINTS || 500;
+          score += overflow;
+          showScoreFloat(overflow);
+        }
+        updatePowerupUI();
+        setTimeout(() => {
+          showMsg(t.msgBoardClear || '🌟 ČISTA TABLA! +1000 PTS & 🔨 ČEKIĆ!', 3500);
+        }, 150);
+      }
+
+      checkBombCriticalState();
       lineClearInProgress = false;
       ensureTrayNotEmpty();
       render();
@@ -2743,20 +2799,21 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       grid[r][c] = null;
       const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
       showMsg(t.msgIceDestroyed || '❄️ LED RAZBIJEN! +500', 2000);
-    } else if(cellData.hp > 1){
-      cellData.hp -= 1;
-      sfxRockCrack();
     } else {
       checkAndCollectPulseBonus(r, c);
-      if(cellData.maxHp >= 2){
+      if(cellData.maxHp >= 2 || cellData.hp > 1){
         recordCareerStat('rocksCrushed', 1);
         sfxRockBreak();
       }
-      if(cellData.bomb) recordCareerStat('bombsDefused', 1);
+      if(cellData.bomb){
+        recordCareerStat('bombsDefused', 1);
+        bombTickers.delete(r+'_'+c);
+      }
+      // Total Destroyer: uklanja svaku kocku/kamen/granit/bombu u jednom udarcu
       grid[r][c] = null;
-      if(cellData.bomb) bombTickers.delete(r+'_'+c);
     }
 
+    checkBombCriticalState();
     hammersCount = Math.max(0, hammersCount - 1);
     setHammerActive(false);
     updatePowerupUI();
@@ -2996,7 +3053,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
             for(let c=0;c<cols;c++){
               const shapeIdx = occMap.get(r+','+c);
               const on = shapeIdx !== undefined;
-              const isStone = on && shapeIdx === piece.stoneIndex;
+              const isStone = on && (piece.stoneIndices ? piece.stoneIndices.includes(shapeIdx) : shapeIdx === piece.stoneIndex);
               const isBomb = on && shapeIdx === piece.bombIndex;
               const cell = document.createElement('div');
               cell.className = 'piece-cell ' + (on?'on':'off') + (isStone?' stone':'') + (isBomb?' bomb':'');
@@ -3006,33 +3063,49 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           }
           slot.appendChild(pg);
 
-          const rotateBtn = document.createElement('div');
-          rotateBtn.className = 'slot-rotate';
-          rotateBtn.innerHTML = '↻';
-          rotateBtn.onpointerdown = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (gameOver || paused || lineClearInProgress || !tray[idx]) return;
-            sfxRotate();
-            tray[idx].shape = GameCore.rotateShapeCW(tray[idx].shape);
-            renderTray();
-            saveGameState();
-          };
-          slot.appendChild(rotateBtn);
+          if(piece.isLockedRotation){
+            const lockBadge = document.createElement('div');
+            lockBadge.className = 'slot-lock-badge';
+            lockBadge.innerHTML = '🔒';
+            lockBadge.title = 'Fiksiran komad (ne može se rotirati)';
+            lockBadge.onpointerdown = (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+              showMsg(t.msgLockedPiece || '🔒 Ovaj komad je zaključan i ne može se rotirati!', 2000);
+              slot.classList.add('shake-piece');
+              setTimeout(() => slot.classList.remove('shake-piece'), 300);
+            };
+            slot.appendChild(lockBadge);
+          } else {
+            const rotateBtn = document.createElement('div');
+            rotateBtn.className = 'slot-rotate';
+            rotateBtn.innerHTML = '↻';
+            rotateBtn.onpointerdown = (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (gameOver || paused || lineClearInProgress || !tray[idx]) return;
+              sfxRotate();
+              tray[idx].shape = GameCore.rotateShapeCW(tray[idx].shape);
+              renderTray();
+              saveGameState();
+            };
+            slot.appendChild(rotateBtn);
 
-          const rotateBtnCCW = document.createElement('div');
-          rotateBtnCCW.className = 'slot-rotate ccw';
-          rotateBtnCCW.innerHTML = '↺';
-          rotateBtnCCW.onpointerdown = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (gameOver || paused || lineClearInProgress || !tray[idx]) return;
-            sfxRotate();
-            tray[idx].shape = GameCore.rotateShapeCCW(tray[idx].shape);
-            renderTray();
-            saveGameState();
-          };
-          slot.appendChild(rotateBtnCCW);
+            const rotateBtnCCW = document.createElement('div');
+            rotateBtnCCW.className = 'slot-rotate ccw';
+            rotateBtnCCW.innerHTML = '↺';
+            rotateBtnCCW.onpointerdown = (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (gameOver || paused || lineClearInProgress || !tray[idx]) return;
+              sfxRotate();
+              tray[idx].shape = GameCore.rotateShapeCCW(tray[idx].shape);
+              renderTray();
+              saveGameState();
+            };
+            slot.appendChild(rotateBtnCCW);
+          }
         } else {
           slot._piece = null;
           slot._shapeKey = '';
@@ -3059,7 +3132,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   function attachDrag(slot){
     const startDrag = (e) => {
       if(gameOver || paused || lineClearInProgress || dragging || !slot._piece) return;
-      if(e.target && e.target.closest && e.target.closest('.slot-rotate')) return;
+      if(e.target && e.target.closest && (e.target.closest('.slot-rotate') || e.target.closest('.slot-lock-badge'))) return;
       
       const coords = getPointerCoords(e);
       const piece = slot._piece;
@@ -3104,6 +3177,12 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       // Rotacija u fioci, bez podizanja komada
       if ((e.key === 'r' || e.key === 'R') && !dragging) {
         e.preventDefault();
+        if (piece.isLockedRotation) {
+          showMsg(t.msgLockedPiece || '🔒 Ovaj komad je zaključan i ne može se rotirati!', 2000);
+          slot.classList.add('shake-piece');
+          setTimeout(() => slot.classList.remove('shake-piece'), 300);
+          return;
+        }
         sfxRotate();
         tray[idx].shape = e.shiftKey ? GameCore.rotateShapeCCW(tray[idx].shape) : GameCore.rotateShapeCW(tray[idx].shape);
         renderTray();
