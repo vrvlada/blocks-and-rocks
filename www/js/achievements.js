@@ -83,7 +83,7 @@ export function checkAndUnlockBadges(stats, currentScore, personalBest, currentL
         showBadgeUnlockToast(badge, currentLang);
         sfxBadgeUnlock();
         triggerConfetti(45);
-      }, idx * 1200);
+      }, (idx + 1) * 1200);
     });
     saveBadges();
   }

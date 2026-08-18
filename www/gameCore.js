@@ -473,6 +473,10 @@
   const FIBONACCI_MILESTONES = [1000, 2000, 3000, 5000, 8000, 13000, 21000, 34000, 55000, 89000, 144000];
   const MILESTONE_HAZARDS = [10000, 25000, 50000, 100000];
   const ICE_HAZARD_BONUS_POINTS = 500;
+  const FROST_HAZARD_START_SCORE = 10000;
+  const FROST_HAZARD_INTERVAL_SCORE = 5000;
+  const FROST_HAZARD_DURATION_SEC = 15;
+  const FROST_HAZARD_BONUS_POINTS = 500;
 
   /**
    * Izračunava na koliko figura se stvara kamen na osnovu Fibonačijevih zona skora:
@@ -721,23 +725,27 @@
 
   /**
    * Izračunava broj figura do sledeće bombe:
-   * < 3.000: 15-20 figura
-   * 3.000 - 6.999: 20-25 figura
-   * 7.000 - 19.999: 16-22 figura
-   * >= 20.000: 12-18 figura
+   * < 3.000: 26-34 figura (ređe, za opušten početak i gradnju)
+   * 3.000 - 4.999: 18-24 figure (malo češće, umeren izazov)
+   * 5.000 - 9.999: 14-18 figura (još češće, dinamična igra)
+   * 10.000 - 19.999: 11-15 figura (brzi tempo)
+   * >= 20.000: 9-13 figura (endgame majstorski nivo)
    */
   function getBombInterval(score, rng = Math.random) {
     const s = Number(score) || 0;
     if (s < 3000) {
-      return 15 + Math.floor(rng() * 6); // 15 - 20
+      return 26 + Math.floor(rng() * 9); // 26 - 34
     }
-    if (s < 7000) {
-      return 20 + Math.floor(rng() * 6); // 20 - 25
+    if (s < 5000) {
+      return 18 + Math.floor(rng() * 7); // 18 - 24
+    }
+    if (s < 10000) {
+      return 14 + Math.floor(rng() * 5); // 14 - 18
     }
     if (s < 20000) {
-      return 16 + Math.floor(rng() * 7); // 16 - 22
+      return 11 + Math.floor(rng() * 5); // 11 - 15
     }
-    return 12 + Math.floor(rng() * 7); // 12 - 18
+    return 9 + Math.floor(rng() * 5); // 9 - 13
   }
 
   /**
@@ -813,6 +821,60 @@
   }
 
   /**
+   * Vraća indeks dostignutog Frost Cube praga (0 za 10k, 1 za 15k, 2 za 20k, 3 za 25k, ...)
+   * ili -1 ako je skor manji od 10.000.
+   */
+  function getFrostHazardMilestone(score) {
+    const s = Number(score) || 0;
+    if (s < FROST_HAZARD_START_SCORE) return -1;
+    return Math.floor((s - FROST_HAZARD_START_SCORE) / FROST_HAZARD_INTERVAL_SCORE);
+  }
+
+  /**
+   * Pronalazi sve popunjene ćelije duž 4 dijagonale (NW, NE, SW, SE) polazeći od (r, c).
+   * Vraća niz { r: number, c: number, cell: object }.
+   */
+  function getDiagonalOccupiedCells(grid, size, r, c) {
+    size = size || SIZE;
+    if (!grid || r == null || c == null) return [];
+    const occupied = [];
+    const dirs = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    dirs.forEach(([dr, dc]) => {
+      let step = 1;
+      while (true) {
+        const nr = r + dr * step;
+        const nc = c + dc * step;
+        if (nr < 0 || nr >= size || nc < 0 || nc >= size) break;
+        if (grid[nr] && grid[nr][nc]) {
+          occupied.push({ r: nr, c: nc, cell: grid[nr][nc] });
+        }
+        step++;
+      }
+    });
+    return occupied;
+  }
+
+  /**
+   * Primenjuje Frost Freeze na sve popunjene kocke duž dijagonala od (frostR, frostC):
+   * Svaka pronađena kocka dobija isFrozen: true, i povećava joj se hp i maxHp za +1.
+   * Vraća niz zamrznutih koordinata [{r, c}].
+   */
+  function applyFrostFreeze(grid, size, frostR, frostC) {
+    size = size || SIZE;
+    const occupied = getDiagonalOccupiedCells(grid, size, frostR, frostC);
+    const frozenCells = [];
+    occupied.forEach(({ r, c, cell }) => {
+      if (cell) {
+        cell.isFrozen = true;
+        cell.hp = (Number(cell.hp) || 1) + 1;
+        cell.maxHp = Math.max(Number(cell.maxHp) || 1, cell.hp);
+        frozenCells.push({ r, c });
+      }
+    });
+    return frozenCells;
+  }
+
+  /**
    * Pronalazi nasumičnu slobodnu ćeliju na tabli za postavljanje hazard/ice bloka.
    * Vraća { r, c } ili null ako je tabla puna.
    */
@@ -885,6 +947,27 @@
     return { rows: fullRows, cols: fullCols, cells };
   }
 
+  function formatShareScoreText(options) {
+    const opts = options || {};
+    const score = opts.score || 0;
+    const combo = opts.comboStreak || 0;
+    const sub = opts.sub || '';
+    const shareScored = opts.shareScored || 'Osvojio sam';
+    const sharePoints = opts.sharePoints || 'poena';
+    const shareBestCombo = opts.shareBestCombo || 'Najveći kombo: x';
+    const shareChallenge = opts.shareChallenge || 'Možeš li me stići? 🚀';
+    const url = opts.url || 'https://blocks-and-rocks.web.app';
+
+    let text = '🧱💥 Blocks and Rocks' + (sub ? (' — ' + sub) : '') + '\n'
+      + '🏆 ' + shareScored + ' ' + Number(score).toLocaleString() + ' ' + sharePoints + '!\n';
+    if (combo > 1) {
+      text += '🔥 ' + shareBestCombo + combo + '\n';
+    }
+    text += shareChallenge + '\n'
+      + '🎮 ' + url;
+    return text;
+  }
+
   return {
     SIZE,
     COLORS,
@@ -896,6 +979,10 @@
     PULSE_BONUS_MAX_INTERVAL_MS,
     MILESTONE_HAZARDS,
     ICE_HAZARD_BONUS_POINTS,
+    FROST_HAZARD_START_SCORE,
+    FROST_HAZARD_INTERVAL_SCORE,
+    FROST_HAZARD_DURATION_SEC,
+    FROST_HAZARD_BONUS_POINTS,
     FIBONACCI_MILESTONES,
     makeGrid,
     shapeSize,
@@ -922,6 +1009,9 @@
     getBombInterval,
     getBombInitialTimer,
     getMilestoneHazardLevel,
+    getFrostHazardMilestone,
+    getDiagonalOccupiedCells,
+    applyFrostFreeze,
     getFibonacciRockMilestone,
     getFibonacciMilestoneSpawnConfig,
     MAX_HAMMERS,
@@ -938,5 +1028,6 @@
     getShapesThatFit,
     generateSmartTrayShapeIndices,
     getCompletedLinesForPlacement,
+    formatShareScoreText,
   };
 });

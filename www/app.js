@@ -2,12 +2,13 @@
 import { TRANSLATIONS } from './i18n.js';
 import { escapeHtml } from './js/utils.js';
 import { initAudio, haptic, setMuted, toggleMute, isMuted, getHapticMode, setHapticMode,
-         sfxPlace, sfxClear, sfxBomb, sfxHammer, sfxRockCrack, sfxRockBreak, sfxReroll, sfxRotate, sfxNewBest, sfxWorldRecord,
-         sfxLevelUp, sfxIceCrack, sfxIceBreak,
+         getAudioSettings, setAudioSetting, previewComboAudio,
+         sfxPlace, sfxBomb, sfxHammer, sfxRockCrack, sfxRockBreak, sfxReroll, sfxRotate, sfxNewBest, sfxWorldRecord,
+         sfxIceCrack, sfxIceBreak,
          playComboAudio, sfxGameOver, sfxBonusGem } from './js/audio.js';
-import { initEffects, triggerScreenShake, triggerConfetti, showScoreFloat, showBigComboBonusCounter, spawnParticles,
+import { initEffects, triggerScreenShake, triggerConfetti, showScoreFloat, showBigComboBonusCounter, showBoardActionAlert, spawnParticles,
          spawnCrackParticles, spawnShockwave, spawnSpark, spawnIceShatterParticles } from './js/effects.js';
-import { initLeaderboard, updateBottomRecords, fetchMyTop3, getCachedGlobalTopScore } from './js/leaderboard.js';
+import { initLeaderboard, updateBottomRecords, fetchMyTop3, getCachedGlobalTopScore, MAX_ENTRIES_PER_USER } from './js/leaderboard.js';
 import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } from './js/achievements.js';
 
 (function(){
@@ -270,28 +271,32 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       { url: 'https://ipapi.co/json/', parse: data => data.country_code }
     ];
 
-    for (const api of apis) {
-      try {
-        // Timeout od 4s po servisu — spor network ne sme blokirati detekciju doveka
-        const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-        const timeoutId = controller ? setTimeout(() => controller.abort(), 4000) : null;
-        let res;
+    // FIX (#5): paralelno ispitivanje svih servisa sa JEDNIM kratkim timeout-om (2.5s).
+    // Ranije je sekvencijalni pristup (4s po servisu) mogao da blokira start do 12s+
+    // na sporom netu, a pošto se IP ionako šalje tim servisima, ne čekamo redom.
+    const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 2500) : null;
+    try {
+      const results = await Promise.all(apis.map(async (api) => {
         try {
-          res = await fetch(api.url, { headers: { 'Accept': 'application/json' }, signal: controller ? controller.signal : undefined });
-        } finally {
-          if (timeoutId) clearTimeout(timeoutId);
-        }
-        if (res.ok) {
+          const res = await fetch(api.url, {
+            headers: { 'Accept': 'application/json' },
+            signal: controller ? controller.signal : undefined
+          });
+          if (!res.ok) return null;
           const data = await res.json();
           const code = api.parse(data);
           if (code && typeof code === 'string' && code.length === 2 && code !== 'XX') {
-            detected = code.toUpperCase();
-            break;
+            return code.toUpperCase();
           }
+        } catch(err) {
+          // neuspešan servis — probaj sledeći
         }
-      } catch(err) {
-        // try next fallback
-      }
+        return null;
+      }));
+      detected = results.find(Boolean) || null;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
 
     if (!detected || detected === 'XX') {
@@ -374,10 +379,18 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     localStorage.setItem('blocksrocks_username', name);
     track('username_set', { name: name });
   }
+  // Throttle rang-liste: savePersonalBest se poziva iz render() pri SVAKOM povećanju
+  // rekorda tokom partije — ne šaljemo mrežni upit za svaki poen, već najviše
+  // jednom u 5 sekundi (kraj partije ionako forsira osvežavanje: updateBottomRecords(true)).
+  let pbWidgetThrottleTs = 0;
   function savePersonalBest(val){
     personalBest = val;
     localStorage.setItem('blocksrocks_personalBest', val.toString());
-    if(typeof updateBottomRecords === 'function') updateBottomRecords(false);
+    const now = Date.now();
+    if(typeof updateBottomRecords === 'function' && (now - pbWidgetThrottleTs) > 5000){
+      pbWidgetThrottleTs = now;
+      updateBottomRecords(false);
+    }
   }
 
   /* ═══════════════════════════════════════════════
@@ -500,6 +513,16 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     setText('usernameSaveBtn', isOnboarding ? (t.onboardingBtn || 'ZAPOČNI IGRU') : t.usernameSaveBtn);
     setText('btnLinkGoogleText', t.btnLinkGoogle);
     setText('i18n_langLabel', t.langLabel);
+    setText('i18n_audioLabel', t.audioLabel);
+    setText('i18n_masterVolLabel', t.masterVolLabel);
+    setText('i18n_audioMixerToggle', t.audioMixerToggle);
+    setText('i18n_comboVolLabel', t.comboVolLabel);
+    setText('i18n_movesSoundLabel', t.movesSoundLabel);
+    setText('i18n_movesSoundDesc', t.movesSoundDesc);
+    setText('i18n_sfxVolLabel', t.sfxVolLabel);
+    setText('i18n_fanfareSoundLabel', t.fanfareSoundLabel);
+    setText('i18n_fanfareSoundDesc', t.fanfareSoundDesc);
+    setText('pauseAudioSettingsBtn', t.pauseAudioSettings || '⚙️ PODEŠAVANJE ZVUKA');
     setText('i18n_dragOffsetLabel', t.dragOffsetLabel);
     setText('i18n_hapticLabel', t.hapticLabel);
     setText('i18n_particleTitle', t.particleTitle);
@@ -525,6 +548,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     setText('i18n_termsLink', t.termsLink || '📄 Uslovi korišćenja');
 
     updateDragOffsetSetting(userDragOffsetMultiplier);
+    updateAudioMixerUI();
     updateHapticSetting(getHapticMode());
     updateHighContrastSetting(highContrastMode);
 
@@ -623,9 +647,35 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     if (toggle) toggle.checked = on;
   }
 
+  function updateAudioMixerUI() {
+    const settings = getAudioSettings();
+    
+    const masterSlider = document.getElementById('masterVolRange');
+    const masterBadge = document.getElementById('masterVolBadge');
+    if (masterSlider) masterSlider.value = settings.masterVolume;
+    if (masterBadge) masterBadge.textContent = Math.round(settings.masterVolume * 100) + '%';
+
+    const comboSlider = document.getElementById('comboVolRange');
+    const comboBadge = document.getElementById('comboVolBadge');
+    if (comboSlider) comboSlider.value = settings.comboVolume;
+    if (comboBadge) comboBadge.textContent = Math.round(settings.comboVolume * 100) + '%';
+
+    const sfxSlider = document.getElementById('sfxVolRange');
+    const sfxBadge = document.getElementById('sfxVolBadge');
+    if (sfxSlider) sfxSlider.value = settings.sfxVolume;
+    if (sfxBadge) sfxBadge.textContent = Math.round(settings.sfxVolume * 100) + '%';
+
+    const movesToggle = document.getElementById('movesSoundToggle');
+    if (movesToggle) movesToggle.checked = !!settings.movesEnabled;
+
+    const fanfareToggle = document.getElementById('fanfareSoundToggle');
+    if (fanfareToggle) fanfareToggle.checked = !!settings.fanfareEnabled;
+  }
+
   function initSettingsUI() {
     applyLanguage(currentLang);
     updateDragOffsetSetting(userDragOffsetMultiplier);
+    updateAudioMixerUI();
     updateHapticSetting(getHapticMode());
     updateHighContrastSetting(highContrastMode);
     updateParticleSetting(particleTrailEnabled);
@@ -705,6 +755,105 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       });
     }
   } catch(e){}
+
+  /* ═══════════════════════════════════════════════
+   *  AUDIO MIXER & SOUND CONTROLS
+   * ═══════════════════════════════════════════════ */
+  // Audio Mixer Accordion Toggle
+  const toggleMixerBtn = document.getElementById('toggleAudioMixerBtn');
+  const mixerPanel = document.getElementById('audioMixerPanel');
+  if (toggleMixerBtn && mixerPanel) {
+    toggleMixerBtn.addEventListener('click', () => {
+      const isOpen = mixerPanel.style.display !== 'none';
+      mixerPanel.style.display = isOpen ? 'none' : 'block';
+      toggleMixerBtn.classList.toggle('open', !isOpen);
+      toggleMixerBtn.setAttribute('aria-expanded', !isOpen ? 'true' : 'false');
+      haptic('light');
+    });
+  }
+
+  // Master Volume Slider
+  const masterSlider = document.getElementById('masterVolRange');
+  if (masterSlider) {
+    masterSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      setAudioSetting('masterVolume', val);
+      const badge = document.getElementById('masterVolBadge');
+      if (badge) badge.textContent = Math.round(val * 100) + '%';
+      if (isMuted() && val > 0) setMuted(false);
+    });
+    masterSlider.addEventListener('change', () => {
+      haptic('light');
+    });
+  }
+
+  // Combo Volume Slider
+  const comboSlider = document.getElementById('comboVolRange');
+  if (comboSlider) {
+    comboSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      setAudioSetting('comboVolume', val);
+      const badge = document.getElementById('comboVolBadge');
+      if (badge) badge.textContent = Math.round(val * 100) + '%';
+    });
+    comboSlider.addEventListener('change', () => {
+      previewComboAudio();
+      haptic('light');
+    });
+  }
+
+  // Special SFX Volume Slider
+  const sfxSlider = document.getElementById('sfxVolRange');
+  if (sfxSlider) {
+    sfxSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      setAudioSetting('sfxVolume', val);
+      const badge = document.getElementById('sfxVolBadge');
+      if (badge) badge.textContent = Math.round(val * 100) + '%';
+    });
+    sfxSlider.addEventListener('change', () => {
+      sfxHammer();
+      haptic('medium');
+    });
+  }
+
+  // Moves Sound Toggle (Placement & Rotation)
+  const movesToggle = document.getElementById('movesSoundToggle');
+  if (movesToggle) {
+    movesToggle.addEventListener('change', (e) => {
+      setAudioSetting('movesEnabled', e.target.checked);
+      if (e.target.checked) sfxRotate();
+      haptic('light');
+    });
+  }
+
+  // Fanfare Sound Toggle
+  const fanfareToggle = document.getElementById('fanfareSoundToggle');
+  if (fanfareToggle) {
+    fanfareToggle.addEventListener('change', (e) => {
+      setAudioSetting('fanfareEnabled', e.target.checked);
+      haptic('light');
+    });
+  }
+
+  // Pause Audio Settings button
+  const pauseAudioBtn = document.getElementById('pauseAudioSettingsBtn');
+  if (pauseAudioBtn) {
+    pauseAudioBtn.addEventListener('click', () => {
+      showUsernameModal(() => {}, false);
+      const mPanel = document.getElementById('audioMixerPanel');
+      const tMixerBtn = document.getElementById('toggleAudioMixerBtn');
+      if (mPanel) mPanel.style.display = 'block';
+      if (tMixerBtn) {
+        tMixerBtn.classList.add('open');
+        tMixerBtn.setAttribute('aria-expanded', 'true');
+      }
+      setTimeout(() => {
+        const audioSection = document.getElementById('audioSettingsSection');
+        if (audioSection) audioSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 120);
+    });
+  }
 
   /* ═══════════════════════════════════════════════
    *  GOOGLE ACCOUNT LINKING & CLOUD SYNC
@@ -1582,26 +1731,15 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
    * ═══════════════════════════════════════════════ */
   const { SIZE, COLORS, SHAPES } = GameCore;
 
-  // ── Centralised config (no more magic numbers) ──
+  // ── Centralised config ──
   const CONFIG = {
-    GHOST_CELL: 38,
-    GHOST_RAISE: 120,
     LINE_CLEAR_STAGGER: 35,
-    BOMB_STAGGER: 30,
-    BOMB_TICK_MS: 800,
-    PARTICLE_COUNT: 6,
-    CRACK_PARTICLE_COUNT: 5,
-    DEBRIS_COUNT: 10,
-    SCORE_FLOAT_DURATION: 850,
     MSG_DURATION_TIP: 2500,
     MSG_DURATION_CLEAR: 2000,
     MSG_DURATION_COMBO: 2500,
-    MSG_DURATION_BOMB: 2000,
     GAME_OVER_DELAY_AFTER_CLEAR: 900,
     GAME_OVER_DELAY_AFTER_BOMB: 300,
-    POP_IN_DURATION: 220,
     CLEAR_ANIM_DURATION: 320,
-    CRACK_ANIM_DURATION: 260,
     RESTART_DEBOUNCE_MS: 1200,
   };
 
@@ -1878,7 +2016,12 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         c: pulseBonusState.c,
         timer: pulseBonusState.timer,
       } : null;
-      const state = { grid, tray, score, comboStreak, hammersCount, rerollsCount, pieceCounter, bombCounter, nextBombAt, pulse };
+      const frost = (frostHazardState.r >= 0) ? {
+        r: frostHazardState.r,
+        c: frostHazardState.c,
+        timer: frostHazardState.timer,
+      } : null;
+      const state = { grid, tray, score, comboStreak, hammersCount, rerollsCount, pieceCounter, bombCounter, nextBombAt, pulse, frost };
       localStorage.setItem('blocksrocks_gameState', JSON.stringify(state));
     } catch(e){
       if(e.name === 'QuotaExceededError' || e.code === 22){
@@ -1934,7 +2077,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         rerollsCount = typeof saved.rerollsCount === 'number' ? saved.rerollsCount : 1;
         pieceCounter = saved.pieceCounter || 0;
         bombCounter = saved.bombCounter || 0;
-        nextBombAt = saved.nextBombAt || 15;
+        nextBombAt = saved.nextBombAt || GameCore.getBombInterval(score);
         gameOver = false;
         dragging = null;
         setHammerActive(false);
@@ -1972,7 +2115,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         dragging = null;
         pieceCounter = 0;
         bombCounter = 0;
-        nextBombAt = 15 + Math.floor(Math.random()*6);
+        nextBombAt = GameCore.getBombInterval(0);
         tray = [null,null,null];
         refillTray();
         clearGameState();
@@ -1984,6 +2127,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       pulseBonusState.r = -1;
       pulseBonusState.c = -1;
       pulseBonusState.timer = 0;
+      clearFrostHazard();
+
       // Ako je sačuvana igra imala aktivnu puls-bonus kocku, nastavi odbrojavanje
       const savedPulse = saved && saved.pulse;
       if(savedPulse && savedPulse.r >= 0
@@ -2000,13 +2145,23 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         scheduleNextPulseBonus();
       }
 
+      // Ako je sačuvana igra imala aktivnu frost-hazard kocku, nastavi odbrojavanje
+      const savedFrost = saved && saved.frost;
+      if(savedFrost && savedFrost.r >= 0
+          && grid && grid[savedFrost.r] && grid[savedFrost.r][savedFrost.c]
+          && grid[savedFrost.r][savedFrost.c].isIceHazard){
+        frostHazardState.r = savedFrost.r;
+        frostHazardState.c = savedFrost.c;
+        frostHazardState.timer = (typeof savedFrost.timer === 'number' && savedFrost.timer > 0)
+          ? savedFrost.timer
+          : (grid[savedFrost.r][savedFrost.c].frostTimer || (GameCore.FROST_HAZARD_DURATION_SEC || 15));
+        grid[savedFrost.r][savedFrost.c].frostTimer = frostHazardState.timer;
+        startFrostCountdownInterval();
+      }
+
       updatePowerupUI();
 
-      // Bugfix: resetuj "dostignute" milestone nivoe za NOVU partiju (fresh ili resume).
-      // Bez ovoga bi kasnije partije preskočile spawn kamenja/leda ispod maksimuma
-      // dostignutog u prethodnoj partiji — lastMilestone* bi ostali na starom nivou,
-      // pa `reached > lastMilestone` nikad ne bi prošlo za ranije pragove.
-      lastMilestoneHazardLevel = GameCore.getMilestoneHazardLevel(score);
+      lastFrostHazardMilestone = (GameCore.getFrostHazardMilestone) ? GameCore.getFrostHazardMilestone(score) : -1;
       lastFibonacciMilestoneIndex = GameCore.getFibonacciRockMilestone(score);
 
       track('game_start', { from_save: !!saved });
@@ -2036,7 +2191,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       dragging = null;
       hasCelebratedNewBest = false;
       hasCelebratedWorldRecord = false;
-      lastMilestoneHazardLevel = GameCore.getMilestoneHazardLevel(score);
+      lastFrostHazardMilestone = (GameCore.getFrostHazardMilestone) ? GameCore.getFrostHazardMilestone(score) : -1;
       lastFibonacciMilestoneIndex = GameCore.getFibonacciRockMilestone(score);
       render();
     }
@@ -2068,8 +2223,10 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       });
 
       if(spawnedCount > 0){
-        sfxRockCrack();
-        triggerScreenShake('light');
+        setTimeout(() => {
+          sfxRockCrack();
+          triggerScreenShake('light');
+        }, 500);
         const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
         const msgTpl = t.msgFibonacciRockSpawn || '🪨 STENA NA TABLI! (%s PTS)';
         showMsg(msgTpl.replace('%s', threshold.toLocaleString()), 2500);
@@ -2078,30 +2235,121 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     }
   }
 
+  let lastFrostHazardMilestone = -1;
+  let frostHazardState = {
+    r: -1,
+    c: -1,
+    timer: 0,
+    intervalId: null
+  };
+
+  function startFrostCountdownInterval(){
+    if(frostHazardState.intervalId){
+      clearInterval(frostHazardState.intervalId);
+      frostHazardState.intervalId = null;
+    }
+    frostHazardState.intervalId = setInterval(() => {
+      if(paused || gameOver) return;
+      if(frostHazardState.r === -1 || !grid || !grid[frostHazardState.r] || !grid[frostHazardState.r][frostHazardState.c]) {
+        clearFrostHazard();
+        return;
+      }
+      const cellData = grid[frostHazardState.r][frostHazardState.c];
+      if(!cellData || !cellData.isIceHazard){
+        clearFrostHazard();
+        return;
+      }
+
+      frostHazardState.timer = Math.max(0, (cellData.frostTimer != null ? cellData.frostTimer : frostHazardState.timer) - 1);
+      cellData.frostTimer = frostHazardState.timer;
+
+      if(frostHazardState.timer <= 3 && frostHazardState.timer > 0){
+        sfxIceCrack();
+        haptic('light');
+      }
+
+      if(frostHazardState.timer <= 0){
+        detonateFrostHazard(frostHazardState.r, frostHazardState.c);
+      } else {
+        render();
+      }
+    }, 1000);
+  }
+
+  function clearFrostHazard(){
+    if(frostHazardState.intervalId){
+      clearInterval(frostHazardState.intervalId);
+      frostHazardState.intervalId = null;
+    }
+    frostHazardState.r = -1;
+    frostHazardState.c = -1;
+    frostHazardState.timer = 0;
+  }
+
+  function detonateFrostHazard(r, c){
+    clearFrostHazard();
+    if(!grid || !grid[r] || !grid[r][c]) return;
+
+    // Primenjujemo Frost Freeze na kocke duž dijagonala
+    const frozenCells = (GameCore.applyFrostFreeze) ? GameCore.applyFrostFreeze(grid, SIZE, r, c) : [];
+
+    // Kocka leda na toj poziciji puca i oslobađa polje
+    grid[r][c] = null;
+
+    sfxIceCrack();
+    triggerScreenShake('heavy');
+    spawnIceShatterParticles(r, c);
+
+    showBoardActionAlert('FROST<br>FREEZE', 'frost');
+    haptic('heavy');
+
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    if(frozenCells.length > 0){
+      showMsg(t.msgFrostFreezeTriggered || '❄️ MRAZ! Kocke ukoso su zamrznute (+1 HP)!', 3500);
+      frozenCells.forEach(pos => {
+        spawnIceShatterParticles(pos.r, pos.c);
+      });
+    } else {
+      showMsg(t.msgFrostFreezeEmpty || '❄️ MRAZ JE DETONIRAO! (Nema kocki ukoso)', 2500);
+    }
+
+    render();
+    saveGameState();
+  }
+
   function checkMilestones(currentScore){
-    const reached = GameCore.getMilestoneHazardLevel(currentScore);
-    if(reached > lastMilestoneHazardLevel){
-      lastMilestoneHazardLevel = reached;
+    const reached = (GameCore.getFrostHazardMilestone) ? GameCore.getFrostHazardMilestone(currentScore) : -1;
+    if(reached > lastFrostHazardMilestone){
+      lastFrostHazardMilestone = reached;
       const freeCell = GameCore.findRandomFreeCell(grid, SIZE);
       if(freeCell){
+        const duration = GameCore.FROST_HAZARD_DURATION_SEC || 15;
         grid[freeCell.r][freeCell.c] = {
           color: '#38bdf8',
           hp: 1,
           maxHp: 1,
           isIceHazard: true,
+          frostTimer: duration
         };
-        sfxLevelUp();
+        frostHazardState.r = freeCell.r;
+        frostHazardState.c = freeCell.c;
+        frostHazardState.timer = duration;
+
+        sfxIceCrack();
         triggerScreenShake('light');
-        triggerConfetti(40);
+        showBoardActionAlert('FROST CUBE<br>ACTIVE', 'frost');
         const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-        showMsg(t.msgLevelUpHazard || '⚠️ LEVEL UP: ZONA OPASNOSTI! ❄️', 3500);
+        showMsg(t.msgFrostSpawn || '❄️ LEDENA KOCKA! Uništi je za 15s pre nego što zamrzne tablu!', 3500);
         render();
+
         const idx = freeCell.r * SIZE + freeCell.c;
         const el = boardEl.children[idx];
         if (el) {
           el.classList.add('pop-in');
           setTimeout(() => el.classList.remove('pop-in'), 300);
         }
+
+        startFrostCountdownInterval();
       }
     }
   }
@@ -2210,8 +2458,14 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   function checkAndTriggerGameOver(delay = CONFIG.GAME_OVER_DELAY_AFTER_CLEAR){
-    if(lineClearInProgress || hasActiveBombs()) return false;
-    if(checkGameOver()){
+    if(lineClearInProgress) return false;
+    const isStuck = checkGameOver();
+    // FIX: bomba ne sme zauvek da blokira kraj igre. Bombe odbrojavaju samo na potez
+    // (tickBombsOnMove), pa ako igrač NEMA nijedan moguć potez (nema postavljanje,
+    // nema čekić, nema zameru), bomba se više nikada ne može deaktivirati — tada je
+    // game over jedina ispravna odluka (inače igra ostaje večno zaglavljena).
+    if(hasActiveBombs() && !isStuck) return false;
+    if(isStuck){
       gameOver = true;
       if (gameOverTimer) clearTimeout(gameOverTimer);
       gameOverTimer = setTimeout(()=>{ gameOverTimer = null; handleGameOver(); }, delay);
@@ -2240,7 +2494,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     haptic('light');
   }
 
-  function placePiece(piece, row, col, onCleared){
+  async function placePiece(piece, row, col){
     let bombPos = null;
     const placedIndices = [];
     piece.shape.forEach(([r,c], i)=>{
@@ -2260,9 +2514,6 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       if(isBomb) bombPos = {r:row+r, c:col+c};
     });
 
-    // Potezno odbrojavanje postojećih bombi na tabli
-    tickBombsOnMove();
-
     const prevScore = score;
     score += piece.shape.length;
     showScoreFloat(score - prevScore);
@@ -2279,17 +2530,42 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     checkFibonacciMilestones(score);
     checkMilestones(score);
     checkAndUnlockBadges(careerStats, score, best, currentLang);
-    sfxPlace();
+    let willClear = false;
+    for(let r=0; r<SIZE; r++){ if(grid[r].every(v=>v)) { willClear = true; break; } }
+    if(!willClear){
+      for(let c=0; c<SIZE; c++){ if(grid.every(row=>row[c])) { willClear = true; break; } }
+    }
+    if(!willClear) sfxPlace();
     render();
-    placedIndices.forEach(idx => {
-      const el = boardEl.children[idx];
-      if (el) {
-        el.classList.add('pop-in');
-        setTimeout(() => el.classList.remove('pop-in'), 280);
-      }
+    
+    requestAnimationFrame(() => {
+      placedIndices.forEach(idx => {
+        const el = boardEl.children[idx];
+        if (el) el.classList.add('pop-in');
+      });
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          placedIndices.forEach(idx => {
+            const el = boardEl.children[idx];
+            if (el) el.classList.remove('pop-in');
+          });
+        });
+      }, 280);
     });
-    if(bombPos) startBombCountdown(bombPos.r, bombPos.c);
-    clearLines(onCleared);
+
+    // Prvo čistimo linije (i defusujemo bombe u njima pre nego što bilo šta eksplodira).
+    await clearLines();
+
+    // 1. Odbrojavamo preostale bombe koje su postojale pre ovog poteza i NISU bile očišćene
+    tickBombsOnMove();
+
+    // 2. Ako je na tablu u ovom potezu spuštena nova bomba i nije očišćena u istom potezu, pokrećemo njen tajmer
+    if(bombPos && grid[bombPos.r] && grid[bombPos.r][bombPos.c] && grid[bombPos.r][bombPos.c].bomb) {
+      startBombCountdown(bombPos.r, bombPos.c);
+      showBoardActionAlert('BOMB PLACED', 'bomb');
+    }
+
+    // 3. Sačuvaj konačno stanje table i tajmera nakon poteza
     saveGameState();
   }
 
@@ -2331,7 +2607,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     for(let r=0; r<SIZE; r++){
       for(let c=0; c<SIZE; c++){
         const d = grid && grid[r] ? grid[r][c] : null;
-        if(d && !d.bomb) {
+        if(d && !d.bomb && !d.isIceHazard && !d.isFrozen && (!d.maxHp || d.maxHp <= 1)) {
           candidates.push({r, c});
         }
       }
@@ -2381,6 +2657,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const pts = GameCore.PULSE_BONUS_POINTS || 250;
     const msgSpawn = t.msgPulseBonusSpawn || ('✨ Zlatna kocka pulsira! Razbij je za +' + pts + '!');
     showMsg(String(msgSpawn).replace('%s', pts), 3000);
+    showBoardActionAlert('GOLDEN CUBE<br>ACTIVE', 'gold');
     haptic('medium');
     sfxBonusGem();
     render();
@@ -2400,6 +2677,17 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         delete d.pulseTimer;
       }
     }
+    if(grid){
+      for(let r=0; r<SIZE; r++){
+        for(let c=0; c<SIZE; c++){
+          const d = grid[r] ? grid[r][c] : null;
+          if(d && d.isPulseBonus){
+            delete d.isPulseBonus;
+            delete d.pulseTimer;
+          }
+        }
+      }
+    }
     pulseBonusState.r = -1;
     pulseBonusState.c = -1;
     pulseBonusState.timer = 0;
@@ -2408,7 +2696,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   function checkAndCollectPulseBonus(r, c){
-    if(pulseBonusState.r === r && pulseBonusState.c === c){
+    const d = (grid && grid[r]) ? grid[r][c] : null;
+    const isPulseMatch = (pulseBonusState.r === r && pulseBonusState.c === c) || (d && d.isPulseBonus);
+    if(isPulseMatch){
       const pts = GameCore.PULSE_BONUS_POINTS || 250;
       score += pts;
       showScoreFloat(pts);
@@ -2470,7 +2760,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     checkBombCriticalState();
 
     if(toExplode.length > 0){
-      toExplode.forEach(pos => explodeBomb(pos.r, pos.c));
+      explodeBombs(toExplode);
     }
   }
 
@@ -2505,24 +2795,30 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     checkBombCriticalState();
   }
 
-  function explodeBomb(r,c){
-    const cellData = (grid && grid[r]) ? grid[r][c] : null;
-    if(!cellData) return;
+  function explodeBombs(bombPositions){
+    if(!bombPositions || bombPositions.length === 0) return;
 
     lineClearInProgress = true;
-    spawnShockwave(r,c);
     sfxBomb();
     triggerScreenShake('heavy');
     comboStreak = 0; // Prekida se kombo niz
     updatePowerupUI();
 
-    // Opcija A: primena hazarda — stvaranje kamenja i ruševina
-    const { affectedCells, spawnedRocksCount } = (GameCore.applyBombExplosionHazard)
-      ? GameCore.applyBombExplosionHazard(grid, SIZE, r, c)
-      : { affectedCells: [], spawnedRocksCount: 0 };
+    let allAffected = [];
+    let totalSpawnedRocks = 0;
+
+    bombPositions.forEach(pos => {
+      spawnShockwave(pos.r, pos.c);
+      // Opcija A: primena hazarda — stvaranje kamenja i ruševina
+      const { affectedCells, spawnedRocksCount } = (GameCore.applyBombExplosionHazard)
+        ? GameCore.applyBombExplosionHazard(grid, SIZE, pos.r, pos.c)
+        : { affectedCells: [], spawnedRocksCount: 0 };
+      allAffected = allAffected.concat(affectedCells);
+      totalSpawnedRocks += spawnedRocksCount;
+    });
 
     // Animacija nastanka ruševina/kamenja
-    affectedCells.forEach((pos, i)=>{
+    allAffected.forEach((pos, i)=>{
       setTimeout(()=>{
         const idx = pos.r*SIZE + pos.c;
         const el = boardEl.children[idx];
@@ -2531,10 +2827,10 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           setTimeout(() => el.classList.remove('pop-in'), 280);
         }
         spawnParticles([pos.r+'_'+pos.c], '#64748b');
-      }, i * 30);
+      }, i * 25);
     });
 
-    const totalAnimTime = Math.max(300, affectedCells.length * 30 + 200);
+    const totalAnimTime = Math.max(300, allAffected.length * 25 + 200);
     setTimeout(()=>{
       lineClearInProgress = false;
       render();
@@ -2544,120 +2840,155 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
     const tBomb = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
     showMsg(tBomb.msgBombExplodedHazard || '💣 BOMBA JE EKSPLODIRALA! Nastao je kamen i ruševine!', 3500);
-    track('bomb_explode_hazard', { spawnedRocks: spawnedRocksCount });
+    track('bomb_explode_hazard', { spawnedRocks: totalSpawnedRocks });
+  }
+
+  function explodeBomb(r,c){
+    explodeBombs([{r, c}]);
   }
 
   /**
    * Zajednička asinhrona animacija za uklanjanje ćelija sa staggerom.
    * Postavlja vizual (clearing klasa, bomb label cleanup, particles),
-   * zatim nakon totalDelay čisti grid i poziva onDone.
+   * zatim nakon totalDelay čisti grid i vraća Promise.
    *
    * @param {Array<{r:number, c:number, willRemove:boolean}>} cells — ćelije za animaciju
    * @param {number} stagger — kašnjenje po ćeliji (ms)
    * @param {number} animDuration — vreme dodatnog čekanja posle poslednje ćelije (ms)
-   * @param {Function} onDone — poziva se posle čišćenja DOM-a i grida
+   * @returns {Promise<void>}
    */
-  function animateStaggeredCellRemoval(cells, stagger, animDuration, onDone){
-    cells.forEach((pos, i)=>{
-      if(pos.willRemove) checkAndCollectPulseBonus(pos.r, pos.c);
-      setTimeout(()=>{
-        const data = grid[pos.r][pos.c];
-        if(!data) return;
-        const idx = pos.r*SIZE+pos.c;
-        const el = boardEl.children[idx];
-        if(pos.willRemove){
-          if(data.isIceHazard){
-            score += GameCore.ICE_HAZARD_BONUS_POINTS || 500;
-            showScoreFloat(GameCore.ICE_HAZARD_BONUS_POINTS || 500);
-            spawnIceShatterParticles(pos.r, pos.c);
-            sfxIceBreak();
-            const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-            showMsg(t.msgIceDestroyed || '❄️ LED RAZBIJEN! +500', 2000);
-          } else if(data.maxHp >= 2){
-            sfxRockBreak();
-            spawnParticles([pos.r+'_'+pos.c], '#8690a8');
-          }
-          if(el){
-            el.style.color = el.style.backgroundColor;
-            el.classList.remove('bomb-cell', 'ice-hazard');
-            const lbl = el.querySelector('.bomb-label');
-            if(lbl) lbl.remove();
-            el.classList.remove('pop-in');
-            el.classList.add('clearing');
-          }
-          spawnParticles([pos.r+'_'+pos.c]);
-        } else {
-          data.hp -= 1;
-          if(el){
-            el.classList.remove('stone-full', 'stone-granite-3', 'stone-granite-2');
-            if(data.maxHp === 3 && data.hp === 2) el.classList.add('stone-granite-2', 'cracking');
-            else el.classList.add('stone-cracked','cracking');
-            el.style.backgroundColor = '';
-          }
-          sfxRockCrack();
-          spawnCrackParticles([pos.r+'_'+pos.c]);
-        }
-      }, i*stagger);
+  function animateStaggeredCellRemoval(cells, stagger, animDuration){
+    // Odmah prikupi puls bonus sa bilo koje ćelije koja se nalazi u očišćenoj liniji
+    cells.forEach(pos => {
+      checkAndCollectPulseBonus(pos.r, pos.c);
     });
 
-    const totalDelay = cells.length*stagger + animDuration;
-    setTimeout(()=>{
-      cells.forEach(({r,c,willRemove})=>{
-        if(willRemove) {
-          grid[r][c] = null;
-          const idx = r*SIZE+c;
-          const el = boardEl.children[idx];
-          if(el){
-            // BUGFIX: uklanjanje 'clearing' klase vratilo bi ćeliju u "filled" izgled
-            // (opacity/transform se odmah vrate, a .cell transition:background 0.08s
-            // bi animirao boju u tamno) → kocke bi "bljesnule" pa nestale.
-            // Supresijom tranzicije ćelija odmah prelazi u prazno stanje bez bljeska.
-            el.style.transition = 'none';
-            el.className = 'cell';
-            el.style.backgroundColor = '';
-            el.style.color = '';
-            void el.offsetWidth; // primeni promenu dok je tranzicija isključena
-            el.style.transition = '';
+    return new Promise(resolve => {
+      let startTimestamp = null;
+      let nextCellIndex = 0;
+
+      function step(timestamp) {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const elapsed = timestamp - startTimestamp;
+
+        while (nextCellIndex < cells.length && elapsed >= nextCellIndex * stagger) {
+          const pos = cells[nextCellIndex];
+          const data = grid[pos.r][pos.c];
+          if(data){
+            const idx = pos.r*SIZE+pos.c;
+            const el = boardEl.children[idx];
+            if(pos.willRemove){
+              if(data.isIceHazard){
+                if(frostHazardState.r === pos.r && frostHazardState.c === pos.c) {
+                  clearFrostHazard();
+                }
+                const pts = GameCore.FROST_HAZARD_BONUS_POINTS || 500;
+                score += pts;
+                showScoreFloat(pts);
+                spawnIceShatterParticles(pos.r, pos.c);
+                sfxIceBreak();
+                showBoardActionAlert('FROST<br>DEFUSED', 'defused');
+                const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+                showMsg(t.msgIceDestroyed || '❄️ LED RAZBIJEN! +500', 2000);
+              } else if(data.isFrozen){
+                spawnIceShatterParticles(pos.r, pos.c);
+                sfxIceBreak();
+              } else if(data.maxHp >= 2){
+                sfxRockBreak();
+                spawnParticles([pos.r+'_'+pos.c], '#8690a8');
+              }
+              if(el){
+                el.style.color = el.style.backgroundColor;
+                el.classList.remove('bomb-cell', 'ice-hazard', 'frozen-cube', 'pulse-bonus-cell');
+                const lbl = el.querySelector('.bomb-label, .frost-label, .pulse-bonus-label');
+                if(lbl) lbl.remove();
+                clearCellDecorators(el);
+                el.classList.remove('pop-in');
+                el.classList.add('clearing');
+              }
+              spawnParticles([pos.r+'_'+pos.c]);
+            } else {
+              data.hp -= 1;
+              if(data.isFrozen){
+                data.isFrozen = false; // Odmrzavanje na prvi udarac
+                if(el) el.classList.remove('frozen-cube');
+                sfxIceCrack();
+                spawnIceShatterParticles(pos.r, pos.c);
+              }
+              if(el){
+                el.classList.remove('stone-full', 'stone-granite-3', 'stone-granite-2');
+                if(data.maxHp === 3 && data.hp === 2) el.classList.add('stone-granite-2', 'cracking');
+                else if(data.maxHp >= 2) el.classList.add('stone-cracked','cracking');
+                el.style.backgroundColor = (data.maxHp >= 2) ? '' : (data.color || '');
+              }
+              if(!data.isFrozen) {
+                sfxRockCrack();
+                spawnCrackParticles([pos.r+'_'+pos.c]);
+              }
+            }
           }
+          nextCellIndex++;
         }
-      });
 
-      // ── Provera za "Board Clear" (potpuno čišćenje table do praznog stanja) ──
-      const isBoardCleared = (GameCore.hasOccupiedCellsOn) ? !GameCore.hasOccupiedCellsOn(grid, SIZE) : false;
-      if(isBoardCleared){
-        const clearBonus = GameCore.BOARD_CLEAR_BONUS || 1000;
-        score += clearBonus;
-        showScoreFloat(clearBonus);
-        recordCareerStat('boardClears', 1);
-        triggerConfetti(55);
-        sfxBonusGem();
-
-        const maxH = GameCore.MAX_HAMMERS || 2;
-        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-        if(hammersCount < maxH){
-          hammersCount = Math.min(maxH, hammersCount + 1);
+        if (nextCellIndex < cells.length) {
+          requestAnimationFrame(step);
         } else {
-          const overflow = GameCore.POWERUP_OVERFLOW_POINTS || 500;
-          score += overflow;
-          showScoreFloat(overflow);
-        }
-        updatePowerupUI();
-        setTimeout(() => {
-          showMsg(t.msgBoardClear || '🌟 ČISTA TABLA! +1000 PTS & 🔨 ČEKIĆ!', 3500);
-        }, 150);
-      }
+          setTimeout(()=>{
+            cells.forEach(({r,c,willRemove})=>{
+              if(willRemove) {
+                grid[r][c] = null;
+                const idx = r*SIZE+c;
+                const el = boardEl.children[idx];
+                if(el){
+                  el.className = 'cell';
+                  el.style.backgroundColor = '';
+                  el.style.color = '';
+                  const meta = cellsMeta.get(el);
+                  if(meta) meta.lastColor = '';
+                  clearCellDecorators(el);
+                }
+              }
+            });
 
-      checkBombCriticalState();
-      lineClearInProgress = false;
-      ensureTrayNotEmpty();
-      render();
-      if(onDone) onDone();
-    }, totalDelay);
+            // ── Provera za "Board Clear" (potpuno čišćenje table do praznog stanja) ──
+            const isBoardCleared = (GameCore.hasOccupiedCellsOn) ? !GameCore.hasOccupiedCellsOn(grid, SIZE) : false;
+            if(isBoardCleared){
+              const clearBonus = GameCore.BOARD_CLEAR_BONUS || 1000;
+              score += clearBonus;
+              showScoreFloat(clearBonus);
+              recordCareerStat('boardClears', 1);
+              triggerConfetti(55);
+              sfxBonusGem();
+
+              const maxH = GameCore.MAX_HAMMERS || 2;
+              const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+              if(hammersCount < maxH){
+                hammersCount = Math.min(maxH, hammersCount + 1);
+              } else {
+                const overflow = GameCore.POWERUP_OVERFLOW_POINTS || 500;
+                score += overflow;
+                showScoreFloat(overflow);
+              }
+              updatePowerupUI();
+              setTimeout(() => {
+                showMsg(t.msgBoardClear || '🌟 ČISTA TABLA! +1000 PTS & 🔨 ČEKIĆ!', 3500);
+              }, 150);
+            }
+
+            checkBombCriticalState();
+            lineClearInProgress = false;
+            ensureTrayNotEmpty();
+            render();
+            resolve();
+          }, animDuration);
+        }
+      }
+      requestAnimationFrame(step);
+    });
   }
 
-  function clearLines(onCleared){
+  async function clearLines(){
     if(lineClearInProgress) {
-      if(onCleared) setTimeout(onCleared, 60);
       return;
     }
     lineClearInProgress = true;
@@ -2673,11 +3004,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       lineClearInProgress = false;
       ensureTrayNotEmpty();
       render();
-      if(onCleared) setTimeout(onCleared, 0);
       return;
     }
     track('line_clear', { rows: fullRows.length, cols: fullCols.length });
-    sfxClear();
 
     const cellsToClear = new Set();
     fullRows.forEach(r=>{ for(let c=0;c<SIZE;c++) cellsToClear.add(r+'_'+c); });
@@ -2690,8 +3019,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       return {r,c,key,willRemove};
     }).sort((a,b)=> (a.r-b.r) || (a.c-b.c));
 
-    // Zajednička stagger animacija (pulse bonus, particles, clearance)
-    animateStaggeredCellRemoval(cellsArr, CONFIG.LINE_CLEAR_STAGGER, CONFIG.CLEAR_ANIM_DURATION, onCleared);
+    // Zajednička stagger animacija sa await-om
+    await animateStaggeredCellRemoval(cellsArr, CONFIG.LINE_CLEAR_STAGGER, CONFIG.CLEAR_ANIM_DURATION);
 
     const removedCount = cellsArr.filter(c=>c.willRemove).length;
     const crackedCount = cellsArr.length - removedCount;
@@ -2707,6 +3036,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       const defuseBonus = defusedCount * 150;
       score += defuseBonus;
       showScoreFloat(defuseBonus);
+      showBoardActionAlert('BOMB DEFUSED', 'defused');
       sfxBonusGem();
       const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
       setTimeout(() => {
@@ -2795,15 +3125,24 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     spawnParticles([r+'_'+c], '#fbbf24');
 
     if(cellData.isIceHazard){
-      score += GameCore.ICE_HAZARD_BONUS_POINTS || 500;
-      showScoreFloat(GameCore.ICE_HAZARD_BONUS_POINTS || 500);
+      if(frostHazardState.r === r && frostHazardState.c === c) {
+        clearFrostHazard();
+      }
+      const pts = GameCore.FROST_HAZARD_BONUS_POINTS || 500;
+      score += pts;
+      showScoreFloat(pts);
       spawnIceShatterParticles(r, c);
       sfxIceBreak();
+      showBoardActionAlert('FROST<br>DEFUSED', 'defused');
       grid[r][c] = null;
       const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
       showMsg(t.msgIceDestroyed || '❄️ LED RAZBIJEN! +500', 2000);
     } else {
       checkAndCollectPulseBonus(r, c);
+      if(cellData.isFrozen){
+        spawnIceShatterParticles(r, c);
+        sfxIceBreak();
+      }
       if(cellData.maxHp >= 2 || cellData.hp > 1){
         recordCareerStat('rocksCrushed', 1);
         sfxRockBreak();
@@ -2811,6 +3150,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       if(cellData.bomb){
         recordCareerStat('bombsDefused', 1);
         bombTickers.delete(r+'_'+c);
+        showBoardActionAlert('BOMB DEFUSED', 'defused');
       }
       // Total Destroyer: uklanja svaku kocku/kamen/granit/bombu u jednom udarcu
       grid[r][c] = null;
@@ -2846,14 +3186,14 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         div.addEventListener('click', () => handleCellClick(r, c));
         frag.appendChild(div);
         cellElements.push(div);
-        cellsMeta.set(div, { lastColor: null, bombLabel: null, pulseLabel: null });
+        cellsMeta.set(div, { lastColor: null, bombLabel: null, pulseLabel: null, frostLabel: null });
       }
     }
     boardEl.appendChild(frag);
   }
 
   /**
-   * Briše sve dinamičke dekoratore ćelije (bomb label, pulse bonus label).
+   * Briše sve dinamičke dekoratore ćelije (bomb label, pulse bonus label, frost label).
    */
   function clearCellDecorators(div){
     const meta = cellsMeta.get(div);
@@ -2862,13 +3202,15 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     if(lbl){ lbl.remove(); meta.bombLabel = null; }
     const pb = meta.pulseLabel;
     if(pb){ pb.remove(); meta.pulseLabel = null; }
+    const fl = meta.frostLabel;
+    if(fl){ fl.remove(); meta.frostLabel = null; }
   }
 
   /**
    * Održava bomb label element unutar ćelije (stvara/briše).
    */
   function renderBombLabel(div, data){
-    const meta = cellsMeta.get(div) || (cellsMeta.set(div, { lastColor: null, bombLabel: null, pulseLabel: null }), cellsMeta.get(div));
+    const meta = cellsMeta.get(div) || (cellsMeta.set(div, { lastColor: null, bombLabel: null, pulseLabel: null, frostLabel: null }), cellsMeta.get(div));
     if(data && data.bomb){
       let label = meta.bombLabel;
       if(!label){
@@ -2889,7 +3231,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
    * Održava pulse bonus label element unutar ćelije (stvara/briše).
    */
   function renderPulseLabel(div, data){
-    const meta = cellsMeta.get(div) || (cellsMeta.set(div, { lastColor: null, bombLabel: null, pulseLabel: null }), cellsMeta.get(div));
+    const meta = cellsMeta.get(div) || (cellsMeta.set(div, { lastColor: null, bombLabel: null, pulseLabel: null, frostLabel: null }), cellsMeta.get(div));
     if(data && data.isPulseBonus){
       let pbLabel = meta.pulseLabel;
       if(!pbLabel){
@@ -2908,6 +3250,28 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   /**
+   * Održava frost hazard label (15s tajmer) unutar ćelije.
+   */
+  function renderFrostLabel(div, data){
+    const meta = cellsMeta.get(div) || (cellsMeta.set(div, { lastColor: null, bombLabel: null, pulseLabel: null, frostLabel: null }), cellsMeta.get(div));
+    if(data && data.isIceHazard){
+      let label = meta.frostLabel;
+      if(!label){
+        label = document.createElement('div');
+        label.className = 'frost-label';
+        div.appendChild(label);
+        meta.frostLabel = label;
+      }
+      const val = (data.frostTimer != null ? data.frostTimer : 15) + 's';
+      if(label.textContent !== val) label.textContent = val;
+      label.classList.toggle('critical-num', (data.frostTimer != null && data.frostTimer <= 3));
+    } else {
+      const label = meta.frostLabel;
+      if(label){ label.remove(); meta.frostLabel = null; }
+    }
+  }
+
+  /**
    * Izračunava CSS klasu za ćeliju na osnovu podataka o kockici.
    */
   function cellClassName(data){
@@ -2915,7 +3279,11 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     let cls = 'cell filled';
     if(data.isIceHazard) {
       cls += ' ice-hazard';
+      if(data.frostTimer != null && data.frostTimer <= 3) cls += ' critical';
       return cls;
+    }
+    if(data.isFrozen) {
+      cls += ' frozen-cube';
     }
     if(data.maxHp === 3){
       if(data.hp >= 3) cls += ' stone-granite-3';
@@ -2961,6 +3329,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
             }
             renderBombLabel(div, data);
             renderPulseLabel(div, data);
+            renderFrostLabel(div, data);
           } else {
             const meta = cellsMeta.get(div);
             if (meta && meta.lastColor !== '') {
@@ -2975,11 +3344,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       if(scoreEl) scoreEl.textContent = score;
 
       const worldRecordScore = typeof getCachedGlobalTopScore === 'function' ? getCachedGlobalTopScore() : 0;
-      if(worldRecordScore > 0 && score > worldRecordScore){
+      if(worldRecordScore >= 1000 && score > worldRecordScore){
         if(!hasCelebratedWorldRecord){
           hasCelebratedWorldRecord = true;
-          triggerConfetti(100);
-          sfxWorldRecord();
           const globalBox = document.getElementById('bottomGlobalCard');
           if(globalBox) globalBox.classList.add('record-breaking');
           const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
@@ -2988,12 +3355,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       }
 
       if(score > best){
-        if(best > 0 && !hasCelebratedNewBest){
+        if(bestAtGameStart >= 500 && score > bestAtGameStart && !hasCelebratedNewBest){
           hasCelebratedNewBest = true;
-          triggerConfetti(70);
-          if (!hasCelebratedWorldRecord) {
-            sfxNewBest();
-          }
           const bestBox = document.querySelector('.scorebox.best');
           if(bestBox) bestBox.classList.add('record-breaking');
         }
@@ -3008,7 +3371,11 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   function renderTray(){
     try {
-      ensureTrayNotEmpty();
+      // FIX (#3): NE dopunjavaj fioku ovde. Dopunjavanje se radi eksplicitno TEK
+      // posle što se potez završi (nakon clearLines-animacije) — inače se novi komad
+      // generiše na osnovu skora/grida PRE nego što se obrišu linije iz poteza.
+      // (render() tokom placePiece poziva renderTray; uz ovu promenu traži se radije
+      //  prikazivanje praznog slota, a puni se u clearLines callback-u.)
       const existing = Array.from(trayEl.children);
       const needed = tray ? tray.length : 3;
 
@@ -3408,12 +3775,15 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const wasKeyboard = !!dragging.keyboard;
     if(ok){
       tray[dragging.idx] = null;
-      ensureTrayNotEmpty();
-      placePiece(dragging.piece, row, col, ()=>{
+      // FIX (#3): NE dopunjavaj fioku PRE postavljanja — to se radi u onCleared
+      // callback-u (posle clearLines), kako bi novi komad uzeo u obzir i očišćene
+      // linije iz ovog poteza.
+      (async () => {
+        await placePiece(dragging.piece, row, col);
         ensureTrayNotEmpty();
         render();
         checkAndTriggerGameOver(CONFIG.GAME_OVER_DELAY_AFTER_CLEAR);
-      });
+      })();
     } else {
       render();
     }
@@ -3557,47 +3927,196 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   }
 
   /* ═══════════════════════════════════════════════
-   *  SHARE SCORE FLOW
+   *  GAME TOAST & SHARE SCORE FLOW
    * ═══════════════════════════════════════════════ */
-  async function shareScore(){
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    const shareTitle = "Blocks and Rocks";
-    const shareText = '🧱💥 Blocks and Rocks — ' + (t.sub || '') + '\n🏆 ' + (t.shareScored || 'Osvojio sam') + ' ' + (score || 0).toLocaleString() + ' ' + (t.sharePoints || 'poena') + '!\n' + (comboStreak > 1 ? ('🔥 ' + (t.shareBestCombo || 'Najveći kombo: x') + comboStreak + '\n') : '') + (t.shareChallenge || 'Možeš li me stići? 🚀');
+  let gameToastTimer = null;
+  function showGameToast(msg, type = 'info', duration = 3000) {
+    let toast = document.getElementById('gameToastBanner');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'gameToastBanner';
+      toast.className = 'game-toast';
+      document.body.appendChild(toast);
+    }
+    const typeClass = type === 'success' ? 'success' : (type === 'error' ? 'error' : '');
+    toast.innerHTML = `<div class="game-toast-content ${typeClass}">${escapeHtml(msg)}</div>`;
+    toast.classList.remove('show');
+    void toast.offsetWidth; // trigger reflow
+    toast.classList.add('show');
 
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: shareTitle,
-          text: shareText
-        });
-        haptic('success');
-      } catch(err) {
-        if (err.name !== 'AbortError') {
-          copyScoreToClipboard(shareText);
-        }
+    clearTimeout(gameToastTimer);
+    gameToastTimer = setTimeout(() => {
+      toast.classList.remove('show');
+    }, duration);
+  }
+
+  let shareBtnTimer = null;
+  function showShareFeedback(mode) {
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const btnShare = document.getElementById('btnShareScore');
+
+    if (mode === 'copied') {
+      const msg = t.scoreCopiedMsg || '📋 Rezultat kopiran u privremenu memoriju!';
+      showGameToast(msg, 'success', 3000);
+      showMsg(msg, 3000);
+      haptic('light');
+
+      if (btnShare) {
+        btnShare.textContent = t.btnShareCopied || '📋 KOPIRANO! ✓';
+        btnShare.classList.remove('failed');
+        btnShare.classList.add('copied');
       }
-    } else {
-      copyScoreToClipboard(shareText);
+    } else if (mode === 'shared') {
+      const msg = t.scoreSharedMsg || '📤 Rezultat uspešno podeljen!';
+      showGameToast(msg, 'success', 3000);
+      showMsg(msg, 3000);
+      haptic('success');
+
+      if (btnShare) {
+        btnShare.textContent = t.btnShareSuccess || '📤 PODELJENO! ✓';
+        btnShare.classList.remove('failed');
+        btnShare.classList.add('copied');
+      }
+    } else if (mode === 'failed') {
+      const msg = t.scoreCopyFailed || '❌ Nije moguće podeliti rezultat';
+      showGameToast(msg, 'error', 3000);
+      showMsg(msg, 3000);
+      haptic('warning');
+
+      if (btnShare) {
+        btnShare.textContent = t.btnShareFailed || '❌ NEUSPELO';
+        btnShare.classList.remove('copied');
+        btnShare.classList.add('failed');
+      }
+    }
+
+    if (btnShare) {
+      clearTimeout(shareBtnTimer);
+      shareBtnTimer = setTimeout(() => {
+        btnShare.classList.remove('copied', 'failed');
+        const curT = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+        btnShare.textContent = curT.btnShareScore || '📤 PODELI REZULTAT';
+      }, 2500);
     }
   }
 
-  async function copyScoreToClipboard(text){
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
+  async function copyScoreToClipboard(text) {
+    let copied = false;
+    // 1. Probaj moderni asinhroni Clipboard API ako je dostupan
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
         await navigator.clipboard.writeText(text);
-      } else {
+        copied = true;
+      } catch (e) {
+        console.warn('[B&R] navigator.clipboard.writeText failed, using textarea fallback:', e);
+      }
+    }
+
+    // 2. Pouzdani textarea + execCommand fallback za mobilne pregledače / iframes / WebViews
+    if (!copied) {
+      try {
         const ta = document.createElement('textarea');
         ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '0';
+        ta.style.left = '-9999px';
+        ta.style.opacity = '0';
+        ta.style.pointerEvents = 'none';
         document.body.appendChild(ta);
+        ta.focus();
         ta.select();
-        document.execCommand('copy');
-        ta.remove();
+        ta.setSelectionRange(0, 99999);
+        const successful = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (successful) {
+          copied = true;
+        }
+      } catch (err) {
+        console.warn('[B&R] execCommand copy failed:', err);
       }
-      showMsg(t.scoreCopiedMsg || '📋 Rezultat kopiran u privremenu memoriju!', 2500);
-      haptic('light');
-    } catch(e){
-      showMsg(t.scoreCopyFailed || '❌ Nije moguće podeliti rezultat', 2000);
+    }
+
+    return copied;
+  }
+
+  let lastGameOverScore = 0;
+  let lastGameOverCombo = 0;
+
+  async function shareScore(){
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const shareTitle = "Blocks and Rocks";
+    const currentScore = (typeof lastGameOverScore === 'number' && lastGameOverScore > 0)
+      ? lastGameOverScore
+      : (score || parseInt(document.getElementById('finalscore')?.textContent || '0', 10));
+    const currentCombo = (typeof lastGameOverCombo === 'number' && lastGameOverCombo > 0)
+      ? lastGameOverCombo
+      : comboStreak;
+
+    const gameUrl = (window.location.protocol && window.location.protocol.startsWith('http'))
+      ? (window.location.origin + window.location.pathname)
+      : 'https://blocks-and-rocks.web.app';
+
+    const shareText = GameCore.formatShareScoreText({
+      score: currentScore,
+      comboStreak: currentCombo,
+      sub: t.sub,
+      shareScored: t.shareScored,
+      sharePoints: t.sharePoints,
+      shareBestCombo: t.shareBestCombo,
+      shareChallenge: t.shareChallenge,
+      url: gameUrl,
+    });
+
+    let shareSuccess = false;
+    let isCancelled = false;
+
+    // 1. Capacitor native Share dodatak ako je pokrenut kao izvorna aplikacija
+    if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.Share) {
+      try {
+        await window.Capacitor.Plugins.Share.share({
+          title: shareTitle,
+          text: shareText,
+          url: gameUrl,
+          dialogTitle: shareTitle
+        });
+        shareSuccess = true;
+      } catch (err) {
+        if (err && (err.name === 'AbortError' || (err.message && err.message.toLowerCase().includes('cancel')))) {
+          isCancelled = true;
+        }
+      }
+    }
+
+    // 2. Web Share API za mobilne browsere (Chrome Android, Safari iOS, Edge)
+    if (!shareSuccess && !isCancelled && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: gameUrl
+        });
+        shareSuccess = true;
+      } catch (err) {
+        if (err && err.name === 'AbortError') {
+          isCancelled = true;
+        }
+      }
+    }
+
+    if (isCancelled) {
+      return;
+    }
+
+    if (shareSuccess) {
+      showShareFeedback('shared');
+    } else {
+      const copied = await copyScoreToClipboard(shareText);
+      if (copied) {
+        showShareFeedback('copied');
+      } else {
+        showShareFeedback('failed');
+      }
     }
   }
 
@@ -3613,6 +4132,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
     const finalScore = score;
     const finalCombo = comboStreak;
+    lastGameOverScore = finalScore;
+    lastGameOverCombo = finalCombo;
     saveMatchToHistory(finalScore, finalCombo);
     recordCareerStat('gamesPlayed', 1);
     recordCareerStat('totalScore', finalScore);

@@ -49,6 +49,7 @@ service cloud.firestore {
         && request.resource.data.username is string
         && request.resource.data.username.size() >= 3
         && request.resource.data.username.size() <= 12
+        && request.resource.data.username.matches('^[a-zA-Z0-9_\\-\\u00C0-\\u024F\\u0400-\\u04FF]+$')
         && request.resource.data.score is int
         && request.resource.data.score >= 0
         && request.resource.data.score <= 1000000
@@ -58,7 +59,11 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         // Anti-impersonation: username mora biti jednak vlasnikovom profilu (users/{uid}).
         // Klijent zato uvek PRVO upisuje/osvežava profil, pa tek onda leaderboard dokument.
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == request.resource.data.username;
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == request.resource.data.username
+        // Anti-impersonation #2: username mora biti REGISTROVANI nadimak vlasnika u
+        // jedinstvenom registru usernames/{lower}. Sprečava lažne rezultate pod tuđim
+        // ili nepostojećim nadimkom (ranije se moglo proizvoljno upisati users/{uid}).
+        && get(/databases/$(database)/documents/usernames/$(request.resource.data.username.lower())).data.uid == request.auth.uid;
 
       // No editing (each game is immutable)
       allow update: if false;
@@ -71,14 +76,25 @@ service cloud.firestore {
     // Unique Usernames Registry — document ID is lowercase username
     match /usernames/{usernameLower} {
       allow read: if true;
+
+      // Kanonski ključ dokumenta MORA biti lowercase(originalName) i ime mora biti
+      // validnog formata — sprečava duple/unakazne unose ("Foo" vs "foo").
       allow create: if request.auth != null
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.originalName is string
         && request.resource.data.originalName.size() >= 3
-        && request.resource.data.originalName.size() <= 12;
+        && request.resource.data.originalName.size() <= 12
+        && request.resource.data.originalName.matches('^[a-zA-Z0-9_\\-\\u00C0-\\u024F\\u0400-\\u04FF]+$')
+        && usernameLower == request.resource.data.originalName.lower();
+
       allow update: if request.auth != null
         && request.resource.data.uid == request.auth.uid
-        && (resource == null || resource.data.uid == request.auth.uid);
+        && request.resource.data.originalName is string
+        && request.resource.data.originalName.size() >= 3
+        && request.resource.data.originalName.size() <= 12
+        && request.resource.data.originalName.matches('^[a-zA-Z0-9_\\-\\u00C0-\\u024F\\u0400-\\u04FF]+$')
+        && usernameLower == request.resource.data.originalName.lower();
+
       allow delete: if request.auth != null
         && (resource == null || resource.data.uid == request.auth.uid);
     }
@@ -86,8 +102,26 @@ service cloud.firestore {
     // User Profiles — document ID is auth UID
     match /users/{userId} {
       allow read: if true;
+
+      // Bezbedan upis profila: korisnik piše samo svoj dokument, a username
+      // (ako se menja ili se piše prvi put) mora biti:
+      //   1) validnog formata i dužine, i
+      //   2) njegov REGISTROVANI nadimak iz usernames/{lower} registra.
+      // (Zadržavanje istog username-a — ne menja se — je dozvoljeno, pa se ne
+      //  lomi rad sa postojećim profilima, a istovremeno se blokira impersonacija.)
       allow write: if request.auth != null
-        && request.auth.uid == userId;
+        && request.auth.uid == userId
+        && (
+          !request.resource.data.keys().hasAny(['username'])
+          || request.resource.data.username == resource.data.username
+          || (
+            request.resource.data.username is string
+            && request.resource.data.username.size() >= 3
+            && request.resource.data.username.size() <= 12
+            && request.resource.data.username.matches('^[a-zA-Z0-9_\\-\\u00C0-\\u024F\\u0400-\\u04FF]+$')
+            && get(/databases/$(database)/documents/usernames/$(request.resource.data.username.lower())).data.uid == request.auth.uid
+          )
+        );
     }
   }
 }

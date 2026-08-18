@@ -20,7 +20,7 @@
 <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
-  <link rel="stylesheet" href="styles.css?v=2.7.0">
+  <link rel="stylesheet" href="styles.css?v=2.9.6">
 </head>
 <body>
 <div class="stars layer3"></div>
@@ -30,7 +30,7 @@
   <header>
     <div class="header-top">
       <div>
-        <div class="logo">BLOCKS <span>AND</span> ROCKS</div>
+        <div class="logo">BLOCKS <span>&amp;</span> ROCKS</div>
         <div class="sub" id="headerSub">STATIČKA SLAGALICA</div>
       </div>
       <div class="scores">
@@ -123,6 +123,7 @@
     <div class="overlay-btns">
       <button id="resumeBtn">▶ NASTAVI</button>
       <button class="btn-secondary" id="pauseMuteBtn">🔊 Zvuk: UKLJ. </button>
+      <button class="btn-secondary" id="pauseAudioSettingsBtn">⚙️ PODEŠAVANJE ZVUKA</button>
       <button class="btn-secondary" id="pauseRestartBtn">🔄 NOVA IGRA</button>
     </div>
   </div>
@@ -239,6 +240,73 @@
         </div>
       </div>
 
+      <!-- Section: Sound & Audio Mixer -->
+      <div class="setting-section" id="audioSettingsSection" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+        <div class="setting-header-row">
+          <div class="setting-label" id="i18n_audioLabel">🔊 ZVUK & AUDIO</div>
+          <div class="setting-val-badge" id="masterVolBadge">80%</div>
+        </div>
+        
+        <!-- Master Volume Slider -->
+        <div style="margin-top:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <span class="setting-sub" id="i18n_masterVolLabel" style="font-size:12px; color:var(--ink);">Glavna jačina</span>
+          </div>
+          <input type="range" id="masterVolRange" min="0" max="1" step="0.05" value="0.8" class="setting-slider" aria-label="Glavna jačina zvuka">
+        </div>
+
+        <!-- Collapsible Accordion Button -->
+        <button type="button" id="toggleAudioMixerBtn" class="audio-mixer-toggle-btn" aria-expanded="false" aria-controls="audioMixerPanel">
+          <span id="i18n_audioMixerToggle">⚙️ Detaljna podešavanja zvuka</span>
+          <span class="accordion-arrow">▼</span>
+        </button>
+
+        <!-- Collapsible Audio Mixer Panel -->
+        <div id="audioMixerPanel" class="audio-mixer-panel" style="display:none;">
+          <!-- 1. Combo & Line Clear Volume -->
+          <div class="mixer-item" style="margin-top:4px;">
+            <div class="setting-header-row">
+              <span class="setting-sub" id="i18n_comboVolLabel" style="font-size:12px; font-weight:600; color:var(--ink);">🔥 Kombo i linije</span>
+              <span class="setting-val-badge" id="comboVolBadge">70%</span>
+            </div>
+            <input type="range" id="comboVolRange" min="0" max="1" step="0.05" value="0.7" class="setting-slider" aria-label="Jačina kombo zvuka">
+          </div>
+
+          <!-- 2. Special SFX (Bombs & Hammers) Volume -->
+          <div class="mixer-item" style="margin-top:12px;">
+            <div class="setting-header-row">
+              <span class="setting-sub" id="i18n_sfxVolLabel" style="font-size:12px; font-weight:600; color:var(--ink);">💣 Specijalni efekti (bombe i čekić)</span>
+              <span class="setting-val-badge" id="sfxVolBadge">80%</span>
+            </div>
+            <input type="range" id="sfxVolRange" min="0" max="1" step="0.05" value="0.8" class="setting-slider" aria-label="Jačina specijalnih efekata">
+          </div>
+
+          <!-- 3. Move Sounds (Placement & Rotation) Toggle -->
+          <div class="setting-row" style="margin-top:14px; padding-top:10px; border-top:1px dashed rgba(255,255,255,0.08);">
+            <div>
+              <div class="setting-sub" id="i18n_movesSoundLabel" style="font-size:12px; font-weight:600; color:var(--ink);">🧱 Zvukovi poteza (spuštanje i rotacija)</div>
+              <div class="setting-sub" id="i18n_movesSoundDesc" style="font-size:10px; color:var(--dim);">Kratak ton pri spuštanju i rotiranju kockice</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="movesSoundToggle" aria-label="Uključi/isključi zvukove poteza">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- 4. Celebration Fanfare Toggle -->
+          <div class="setting-row" style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(255,255,255,0.08);">
+            <div>
+              <div class="setting-sub" id="i18n_fanfareSoundLabel" style="font-size:12px; font-weight:600; color:var(--ink);">🎺 Fanfare i rekordi</div>
+              <div class="setting-sub" id="i18n_fanfareSoundDesc" style="font-size:10px; color:var(--dim);">Muzičke fanfare pri obaranju rekorda</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="fanfareSoundToggle" checked aria-label="Uključi/isključi fanfare">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <!-- Section 6: Haptic Feedback -->
       <div class="setting-section" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
         <div class="setting-label" id="i18n_hapticLabel">📳 VIBRACIJA (HAPTICS)</div>
@@ -333,7 +401,7 @@
 
 <canvas id="confettiCanvas"></canvas>
 
-  <script defer src="gameCore.js?v=2.7.0"></script>
-  <script type="module" src="app.js?v=2.7.0"></script>
+  <script defer src="gameCore.js?v=2.9.6"></script>
+  <script type="module" src="app.js?v=2.9.6"></script>
 </body>
 </html>

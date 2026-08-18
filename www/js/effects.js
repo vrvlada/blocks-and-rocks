@@ -1,15 +1,17 @@
 /*
- * Blocks & Rocks — vizuelni efekti: confetti (canvas), screen shake, score float,
- * line-clear/bomb particles, crack particles, shockwave, drag spark trail.
- * ES modul — faza 2 modularizacije. Zavisnosti: initEffects(deps).
- *   deps = { CONFIG, SIZE, boardEl, scoreEl, getGrid, getParticleTrailEnabled }
+ * Blocks & Rocks — vizuelni efekti: confetti, line-clear sparkles, rock chips,
+ * ice shards (Canvas 2D), screen shake, score float, arcade combo counter.
+ * ES modul — zavisnosti: initEffects(deps).
+ *   deps = { CONFIG, SIZE, boardEl, scoreEl, getGrid, getParticleTrailEnabled, getReducedMotionEnabled }
  */
 
 let D = null;
-export function initEffects(deps){ D = deps; }
+export function initEffects(deps){
+  D = deps;
+  initCanvasEngine();
+}
 
-/* Reduce Motion: kada je uključeno (ručni toggle ili OS signal) preskačemo
- * jake vizuelne efekte (shake/confetti/iskre/partikle/shockwave). */
+/* Reduce Motion: kada je uključeno preskačemo teže vizuelne efekte */
 function _reducedMotion(){
   return !!(D && D.getReducedMotionEnabled && D.getReducedMotionEnabled());
 }
@@ -21,105 +23,154 @@ export function triggerScreenShake(intensity = 'light'){
   if(!target) return;
   const cls = intensity === 'heavy' ? 'screen-shake-heavy' : 'screen-shake-light';
   target.classList.remove('screen-shake-light', 'screen-shake-heavy');
-  void target.offsetWidth;
-  target.classList.add(cls);
-  setTimeout(() => target.classList.remove(cls), intensity === 'heavy' ? 400 : 280);
+  requestAnimationFrame(() => {
+    target.classList.add(cls);
+    setTimeout(() => target.classList.remove(cls), intensity === 'heavy' ? 360 : 240);
+  });
 }
 
-/* ═══ CONFETTI SYSTEM (Canvas Particle Burst) ═══ */
-const confettiCanvas = document.getElementById('confettiCanvas');
-let confettiCtx = null;
-let confettiParticles = [];
-let confettiRAF = null;
+/* ══════════════════════════════════════════════════════════════════════
+ *  HIGH-PERFORMANCE UNIFIED 2D CANVAS PARTICLE ENGINE (Zero DOM thrash)
+ * ══════════════════════════════════════════════════════════════════════ */
+let canvas = null;
+let ctx = null;
+let particles = [];
+let canvasRAF = null;
 
-function initConfetti(){
-  if (!confettiCanvas) return;
-  confettiCtx = confettiCanvas.getContext('2d');
+function initCanvasEngine(){
+  canvas = document.getElementById('confettiCanvas');
+  if (!canvas) return;
+  try {
+    ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false });
+  } catch(e) {
+    ctx = canvas.getContext('2d');
+  }
   const resize = () => {
-    confettiCanvas.width = window.innerWidth;
-    confettiCanvas.height = window.innerHeight;
+    if(!canvas) return;
+    // Ograniči DPR na maksimalno 1.5 na telefonima (štedi 50-60% GPU memorije i fillrate-a)
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    canvas.width = Math.round(window.innerWidth * dpr);
+    canvas.height = Math.round(window.innerHeight * dpr);
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    if(ctx) ctx.scale(dpr, dpr);
   };
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize', resize, { passive: true });
   resize();
 }
 
-export function triggerConfetti(count = 60){
-  if(_reducedMotion()) return;
-  if (!confettiCanvas) return;
-  if (!confettiCtx) initConfetti();
-  if (!confettiCtx) return;
+function ensureCanvas(){
+  if(!canvas) canvas = document.getElementById('confettiCanvas');
+  if(canvas && !ctx) initCanvasEngine();
+  return !!ctx;
+}
 
-  const colors = ['#5eead4', '#f472b6', '#fbbf24', '#a78bfa', '#a3e635', '#60a5fa', '#fb923c', '#ffffff'];
-  const originX = confettiCanvas.width / 2;
-  const originY = confettiCanvas.height * 0.42;
-
-  for (let i = 0; i < count; i++) {
-    const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
-    const speed = 5 + Math.random() * 10;
-    confettiParticles.push({
-      x: originX + (Math.random() - 0.5) * 90,
-      y: originY + (Math.random() - 0.5) * 40,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - 4.5,
-      size: 5 + Math.random() * 7,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      rotation: Math.random() * 360,
-      rotationSpeed: (Math.random() - 0.5) * 14,
-      alpha: 1,
-      life: 0,
-      maxLife: 60 + Math.floor(Math.random() * 35),
-    });
-  }
-
-  if (!confettiRAF) {
-    animateConfetti();
+function startCanvasLoop(){
+  if (!canvasRAF && particles.length > 0) {
+    canvasRAF = requestAnimationFrame(animateCanvasParticles);
   }
 }
 
-function animateConfetti(){
-  if (!confettiCtx || confettiParticles.length === 0) {
-    if (confettiCtx && confettiCanvas) {
-      confettiCtx.setTransform(1, 0, 0, 1, 0, 0);
-      confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+function animateCanvasParticles(){
+  if (!ctx || particles.length === 0) {
+    if (ctx && canvas) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
-    confettiRAF = null;
+    canvasRAF = null;
     return;
   }
 
-  confettiCtx.setTransform(1, 0, 0, 1, 0, 0);
-  confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
-  for (let i = confettiParticles.length - 1; i >= 0; i--) {
-    const p = confettiParticles[i];
+  const screenW = window.innerWidth + 30;
+  const screenH = window.innerHeight + 30;
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
     p.x += p.vx;
     p.y += p.vy;
-    p.vy += 0.24; // gravity
-    p.vx *= 0.98; // air drag
+    p.vy += p.gravity;
+    p.vx *= p.drag;
     p.rotation += p.rotationSpeed;
     p.life++;
     p.alpha = Math.max(0, 1 - p.life / p.maxLife);
 
-    if (p.alpha <= 0 || p.y > confettiCanvas.height + 20) {
-      confettiParticles.splice(i, 1);
+    if (p.alpha <= 0 || p.y > screenH || p.y < -30 || p.x > screenW || p.x < -30) {
+      particles.splice(i, 1);
       continue;
     }
 
-    // setTransform u jednom pozivu primenjuje identitet + translaciju + rotaciju
     const rad = (p.rotation * Math.PI) / 180;
     const cosR = Math.cos(rad), sinR = Math.sin(rad);
-    confettiCtx.globalAlpha = p.alpha;
-    confettiCtx.fillStyle = p.color;
-    confettiCtx.setTransform(cosR, sinR, -sinR, cosR, p.x, p.y);
-    confettiCtx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.65);
+
+    ctx.setTransform(cosR * dpr, sinR * dpr, -sinR * dpr, cosR * dpr, p.x * dpr, p.y * dpr);
+    ctx.globalAlpha = p.alpha;
+    ctx.fillStyle = p.color;
+
+    if (p.shape === 'circle') {
+      ctx.beginPath();
+      ctx.arc(0, 0, p.size / 2, 0, 6.283185307179586);
+      ctx.fill();
+    } else {
+      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * p.aspect);
+    }
   }
 
-  confettiCtx.setTransform(1, 0, 0, 1, 0, 0);
-  confettiRAF = requestAnimationFrame(animateConfetti);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  if (particles.length > 0) {
+    canvasRAF = requestAnimationFrame(animateCanvasParticles);
+  } else {
+    canvasRAF = null;
+  }
+}
+
+/* ═══ CONFETTI BURST ═══ */
+export function triggerConfetti(count = 30){
+  if(_reducedMotion()) return;
+  if (!ensureCanvas()) return;
+
+  const colors = ['#5eead4', '#f472b6', '#fbbf24', '#a78bfa', '#a3e635', '#60a5fa', '#fb923c', '#ffffff'];
+  const originX = window.innerWidth / 2;
+  const originY = window.innerHeight * 0.42;
+
+  if (particles.length > 120) particles.splice(0, particles.length - 80);
+
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+    const speed = 4 + Math.random() * 8;
+    particles.push({
+      x: originX + (Math.random() - 0.5) * 80,
+      y: originY + (Math.random() - 0.5) * 30,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 4,
+      gravity: 0.22,
+      drag: 0.98,
+      size: 5 + Math.random() * 6,
+      aspect: 0.65,
+      shape: 'rect',
+      color: colors[Math.floor(Math.random() * colors.length)],
+      rotation: Math.random() * 360,
+      rotationSpeed: (Math.random() - 0.5) * 12,
+      alpha: 1,
+      life: 0,
+      maxLife: 35 + Math.floor(Math.random() * 15),
+    });
+  }
+
+  startCanvasLoop();
 }
 
 /* ═══ SCORE FLOAT ANIMATION ═══ */
+let _lastScoreFloat = 0;
 export function showScoreFloat(points){
   if(points <= 0) return;
+  const now = performance.now();
+  if(now - _lastScoreFloat < 150) return; // prevent DOM flooding on rapid clears
+  _lastScoreFloat = now;
   const el = document.createElement('div');
   el.className = 'score-float';
   el.textContent = '+' + points;
@@ -130,7 +181,7 @@ export function showScoreFloat(points){
     el.style.right = '4px';
     el.style.bottom = '100%';
   }
-  setTimeout(()=> el.remove(), (D && D.CONFIG && D.CONFIG.SCORE_FLOAT_DURATION) || 1200);
+  setTimeout(()=> el.remove(), (D && D.CONFIG && D.CONFIG.SCORE_FLOAT_DURATION) || 1000);
 }
 
 /* ═══ BIG COMBO ROLLING BONUS COUNTER (Arkadni rastući brojač) ═══ */
@@ -171,14 +222,15 @@ export function showBigComboBonusCounter(bonus, comboStreak = 1, linesCleared = 
     numEl.textContent = '+' + bonus;
     setTimeout(() => {
       popup.classList.add('fly-out');
-      setTimeout(() => popup.remove(), 400);
-    }, 900);
+      setTimeout(() => popup.remove(), 300);
+    }, 700);
     return;
   }
 
-  // Brzo odbrojavanje od +0 do ciljanog bonusa (npr. +500)
-  const duration = Math.min(650, Math.max(380, bonus * 1.1)); // 380ms - 650ms
+  // Snappy i glatko odbrojavanje od +0 do ciljanog iznosa (260ms - 420ms)
+  const duration = Math.min(420, Math.max(260, bonus * 0.6));
   const startTime = performance.now();
+  let lastVal = -1;
 
   function tick(now){
     const elapsed = now - startTime;
@@ -187,87 +239,136 @@ export function showBigComboBonusCounter(bonus, comboStreak = 1, linesCleared = 
     const ease = 1 - Math.pow(1 - progress, 3);
     const currentVal = Math.round(ease * bonus);
 
-    numEl.textContent = '+' + currentVal;
+    if(currentVal !== lastVal){
+      numEl.textContent = '+' + currentVal;
+      lastVal = currentVal;
+    }
 
     if(progress < 1){
       requestAnimationFrame(tick);
     } else {
       numEl.textContent = '+' + bonus;
       popup.classList.add('finished');
-      // Drži prikazan pun iznos ~700ms pre nego što odleti nagore
       setTimeout(()=>{
         popup.classList.add('fly-out');
-        setTimeout(() => popup.remove(), 420);
-      }, 700);
+        setTimeout(() => popup.remove(), 320);
+      }, 550);
     }
   }
 
   requestAnimationFrame(tick);
 }
 
+/* ═══ ARCADE 3D BOARD ACTION ALERT (BOMB PLACED / GOLDEN CUBE) ═══ */
+export function showBoardActionAlert(text, type = 'bomb'){
+  const board = (D && D.boardEl) || document.getElementById('board');
+  const boardParent = board ? (board.parentElement || document.body) : document.body;
 
-/* ═══ LINE-CLEAR / BOMB PARTICLES ═══ */
+  const existing = document.querySelectorAll('.board-action-alert');
+  existing.forEach(el => el.remove());
+
+  const alert = document.createElement('div');
+  alert.className = 'board-action-alert alert-' + type;
+
+  // Header tag / badge
+  const tag = document.createElement('div');
+  tag.className = 'action-alert-tag';
+  if(type === 'bomb'){
+    tag.innerHTML = '💣 WARNING';
+  } else if(type === 'gold'){
+    tag.innerHTML = '✨ PULSE BONUS';
+  } else if(type === 'frost'){
+    tag.innerHTML = '❄️ FROST HAZARD';
+  } else if(type === 'defused'){
+    tag.innerHTML = '🛡️ DEFUSED';
+  } else {
+    tag.innerHTML = '⚡ ALERT';
+  }
+  alert.appendChild(tag);
+
+  // Main 3D Text
+  const title = document.createElement('div');
+  title.className = 'action-alert-title';
+  title.innerHTML = text;
+  alert.appendChild(title);
+
+  boardParent.appendChild(alert);
+
+  if(_reducedMotion()){
+    setTimeout(() => alert.remove(), 700);
+    return;
+  }
+
+  setTimeout(() => {
+    alert.classList.add('fly-out');
+    setTimeout(() => alert.remove(), 320);
+  }, 680);
+}
+
+/* ═══ LINE-CLEAR / BOMB PARTICLES (Canvas 2D) ═══ */
 export function spawnParticles(cellsToClear, colorOverride){
   if(_reducedMotion()) return;
-  const SIZE = D.SIZE;
+  if(!ensureCanvas()) return;
+  if (!D || !D.boardEl) return;
+
+  const SIZE = D.SIZE || 8;
   const rect = D.boardEl.getBoundingClientRect();
   const padding = 8, gap = 4;
   const cellW = (rect.width - padding*2 - gap*(SIZE-1)) / SIZE;
   const total = cellsToClear.length || 1;
-  const count = total > 12 ? 2 : (total > 6 ? 3 : D.CONFIG.PARTICLE_COUNT);
-  const grid = D.getGrid();
+  const count = total > 12 ? 2 : (total > 6 ? 3 : 4);
+  const grid = D.getGrid ? D.getGrid() : null;
 
-  const existing = document.querySelectorAll('.particle');
-  if (existing.length > 36) {
-    for (let k = 0; k < existing.length - 20; k++) existing[k].remove();
-  }
+  if (particles.length > 120) particles.splice(0, particles.length - 80);
 
   cellsToClear.forEach(key=>{
     const [r,c] = key.split('_').map(Number);
-    const cellData = grid[r][c];
+    const cellData = grid && grid[r] ? grid[r][c] : null;
     const color = colorOverride || (cellData && cellData.color) || '#5eead4';
     const cx = rect.left + padding + c*(cellW+gap) + cellW/2;
     const cy = rect.top + padding + r*(cellW+gap) + cellW/2;
 
-    for(let i=0;i<count;i++){
-      const p = document.createElement('div');
-      p.className = 'particle';
-      p.style.background = color;
-      p.style.left = cx+'px';
-      p.style.top = cy+'px';
-      document.body.appendChild(p);
-
-      const angle = (Math.PI*2*i/count) + Math.random()*0.6;
-      const dist = 30 + Math.random()*40;
-      const dx = Math.cos(angle)*dist;
-      const dy = Math.sin(angle)*dist;
-      const rot = (Math.random()*360)|0;
-
-      p.animate([
-        { transform:'translate3d(0,0,0) rotate(0deg) scale(1)', opacity:1 },
-        { transform:`translate3d(${dx}px, ${dy}px, 0) rotate(${rot}deg) scale(0.3)`, opacity:0 }
-      ], { duration: 420 + Math.random()*180, easing:'cubic-bezier(.2,.7,.3,1)' });
-
-      setTimeout(()=>p.remove(), 650);
+    for(let i=0; i<count; i++){
+      const angle = (Math.PI * 2 * i / count) + Math.random() * 0.5;
+      const speed = 2.5 + Math.random() * 4;
+      particles.push({
+        x: cx,
+        y: cy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        gravity: 0.08,
+        drag: 0.94,
+        size: 3.5 + Math.random() * 3.5,
+        aspect: 1,
+        shape: 'circle',
+        color: color,
+        rotation: Math.random() * 360,
+        rotationSpeed: (Math.random() - 0.5) * 8,
+        alpha: 1,
+        life: 0,
+        maxLife: 20 + Math.floor(Math.random() * 10),
+      });
     }
   });
+
+  startCanvasLoop();
 }
 
+/* ═══ ROCK CRACK PARTICLES (Canvas 2D) ═══ */
 export function spawnCrackParticles(cellsToClear){
   if(_reducedMotion()) return;
-  const SIZE = D.SIZE;
+  if(!ensureCanvas()) return;
+  if (!D || !D.boardEl) return;
+
+  const SIZE = D.SIZE || 8;
   const rect = D.boardEl.getBoundingClientRect();
   const padding = 8, gap = 4;
   const cellW = (rect.width - padding*2 - gap*(SIZE-1)) / SIZE;
   const total = cellsToClear.length || 1;
-  const count = total > 12 ? 3 : (total > 6 ? 5 : (D.CONFIG.CRACK_PARTICLE_COUNT || 6));
+  const count = total > 12 ? 3 : (total > 6 ? 4 : 5);
+  const rockColors = ['#3d4454', '#5a6378', '#8690a8', '#d0d7e8', '#f59e0b'];
 
-  const existing = document.querySelectorAll('.particle');
-  if (existing.length > 48) {
-    for (let k = 0; k < existing.length - 24; k++) existing[k].remove();
-  }
-
-  const rockColors = ['#1e212b', '#3d4454', '#5a6378', '#8690a8', '#d0d7e8', '#fbbf24', '#f59e0b'];
+  if (particles.length > 120) particles.splice(0, particles.length - 80);
 
   cellsToClear.forEach(key=>{
     const [r,c] = key.split('_').map(Number);
@@ -275,39 +376,36 @@ export function spawnCrackParticles(cellsToClear){
     const cy = rect.top + padding + r*(cellW+gap) + cellW/2;
 
     for(let i=0; i<count; i++){
-      const p = document.createElement('div');
-      p.className = 'particle';
-      const szW = 3 + Math.floor(Math.random() * 5);
-      const szH = 2 + Math.floor(Math.random() * 5);
-      p.style.width = szW + 'px';
-      p.style.height = szH + 'px';
-      p.style.background = rockColors[Math.floor(Math.random() * rockColors.length)];
-      p.style.borderRadius = `${1 + Math.random()*3}px ${2 + Math.random()*4}px ${1 + Math.random()*2}px ${2 + Math.random()*3}px`;
-      p.style.boxShadow = '0 2px 4px rgba(0,0,0,0.6)';
-      p.style.left = (cx + (Math.random() - 0.5) * 12) + 'px';
-      p.style.top = (cy + (Math.random() - 0.5) * 12) + 'px';
-      document.body.appendChild(p);
-
       const angle = (Math.PI * 2 * i / count) + (Math.random() - 0.5) * 0.8;
-      const dist = 16 + Math.random() * 26;
-      const dx = Math.cos(angle) * dist;
-      const dy = Math.sin(angle) * dist + 10; // slight gravitational drop
-      const rot = (Math.random() * 720 - 360) | 0;
-
-      p.animate([
-        { transform: 'translate3d(0,0,0) scale(1) rotate(0deg)', opacity: 1 },
-        { transform: `translate3d(${dx}px, ${dy}px, 0) scale(${0.2 + Math.random()*0.4}) rotate(${rot}deg)`, opacity: 0 }
-      ], { duration: 320 + Math.random() * 160, easing: 'cubic-bezier(.17,.67,.3,1)' });
-
-      setTimeout(() => p.remove(), 490);
+      const speed = 2 + Math.random() * 3.5;
+      particles.push({
+        x: cx + (Math.random() - 0.5) * 8,
+        y: cy + (Math.random() - 0.5) * 8,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 1,
+        gravity: 0.22,
+        drag: 0.95,
+        size: 3 + Math.random() * 3.5,
+        aspect: 0.8,
+        shape: 'rect',
+        color: rockColors[Math.floor(Math.random() * rockColors.length)],
+        rotation: Math.random() * 360,
+        rotationSpeed: (Math.random() - 0.5) * 14,
+        alpha: 1,
+        life: 0,
+        maxLife: 22 + Math.floor(Math.random() * 10),
+      });
     }
   });
+
+  startCanvasLoop();
 }
 
 /* ═══ BOMB SHOCKWAVE ═══ */
 export function spawnShockwave(r,c){
   if(_reducedMotion()) return;
-  const SIZE = D.SIZE;
+  const SIZE = D && D.SIZE ? D.SIZE : 8;
+  if (!D || !D.boardEl) return;
   const rect = D.boardEl.getBoundingClientRect();
   const padding = 8, gap = 4;
   const cellW = (rect.width - padding*2 - gap*(SIZE-1)) / SIZE;
@@ -318,69 +416,80 @@ export function spawnShockwave(r,c){
   wave.style.left = cx + 'px';
   wave.style.top = cy + 'px';
   document.body.appendChild(wave);
-  setTimeout(()=> wave.remove(), 600);
+  setTimeout(()=> wave.remove(), 450);
 }
 
-/* ═══ ICE SHATTER PARTICLES (Hazard block destruction) ═══ */
+/* ═══ ICE SHATTER PARTICLES (Canvas 2D) ═══ */
 export function spawnIceShatterParticles(r, c) {
   if (!D || !D.boardEl) return;
   if(_reducedMotion()) return;
-  const SIZE = D.SIZE;
+  if(!ensureCanvas()) return;
+
+  const SIZE = D.SIZE || 8;
   const rect = D.boardEl.getBoundingClientRect();
   const padding = 8, gap = 4;
   const cellW = (rect.width - padding * 2 - gap * (SIZE - 1)) / SIZE;
   const cx = rect.left + padding + c * (cellW + gap) + cellW / 2;
   const cy = rect.top + padding + r * (cellW + gap) + cellW / 2;
 
-  const iceColors = ['#e0f2fe', '#bae6fd', '#7dd3fc', '#38bdf8', '#0284c7', '#ffffff'];
-  const count = 16;
+  const iceColors = ['#e0f2fe', '#bae6fd', '#7dd3fc', '#38bdf8', '#ffffff'];
+  const count = 10;
+
+  if (particles.length > 120) particles.splice(0, particles.length - 80);
 
   for (let i = 0; i < count; i++) {
-    const p = document.createElement('div');
-    p.className = 'particle';
-    const sz = 3 + Math.floor(Math.random() * 6);
-    p.style.width = sz + 'px';
-    p.style.height = (sz * (0.8 + Math.random() * 0.8)) + 'px';
-    p.style.background = iceColors[Math.floor(Math.random() * iceColors.length)];
-    p.style.borderRadius = '2px';
-    p.style.boxShadow = '0 0 6px rgba(56, 189, 248, 0.85)';
-    p.style.left = (cx + (Math.random() - 0.5) * 14) + 'px';
-    p.style.top = (cy + (Math.random() - 0.5) * 14) + 'px';
-    document.body.appendChild(p);
-
     const angle = (Math.PI * 2 * i / count) + (Math.random() - 0.5) * 0.5;
-    const dist = 24 + Math.random() * 32;
-    const dx = Math.cos(angle) * dist;
-    const dy = Math.sin(angle) * dist + 12;
-    const rot = (Math.random() * 720 - 360) | 0;
-
-    p.animate([
-      { transform: 'translate3d(0,0,0) scale(1) rotate(0deg)', opacity: 1 },
-      { transform: `translate3d(${dx}px, ${dy}px, 0) scale(0.1) rotate(${rot}deg)`, opacity: 0 }
-    ], { duration: 400 + Math.random() * 150, easing: 'cubic-bezier(.17,.67,.3,1)' });
-
-    setTimeout(() => p.remove(), 580);
+    const speed = 2.5 + Math.random() * 4;
+    particles.push({
+      x: cx + (Math.random() - 0.5) * 8,
+      y: cy + (Math.random() - 0.5) * 8,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 1.2,
+      gravity: 0.18,
+      drag: 0.95,
+      size: 3 + Math.random() * 3.5,
+      aspect: 0.7,
+      shape: 'rect',
+      color: iceColors[Math.floor(Math.random() * iceColors.length)],
+      rotation: Math.random() * 360,
+      rotationSpeed: (Math.random() - 0.5) * 18,
+      alpha: 1,
+      life: 0,
+      maxLife: 24 + Math.floor(Math.random() * 10),
+    });
   }
+
+  startCanvasLoop();
 }
 
-/* ═══ DRAG SPARK TRAIL ═══ */
+/* ═══ DRAG SPARK TRAIL (Canvas 2D) ═══ */
 let sparkThrottle = 0;
 export function spawnSpark(x, y) {
   if(_reducedMotion()) return;
   if (!D || !D.getParticleTrailEnabled || !D.getParticleTrailEnabled()) return;
   sparkThrottle++;
   if (sparkThrottle % 2 !== 0) return;
-  if (document.querySelectorAll('.drag-spark').length > 10) return;
+  if (!ensureCanvas()) return;
 
-  const spark = document.createElement('div');
-  spark.className = 'drag-spark';
-  spark.style.left = x + 'px';
-  spark.style.top = y + 'px';
-  const dx = (Math.random() - 0.5) * 36;
-  const dy = (Math.random() - 0.5) * 36;
-  spark.style.setProperty('--dx', dx + 'px');
-  spark.style.setProperty('--dy', dy + 'px');
+  if (particles.length > 60) return;
 
-  document.body.appendChild(spark);
-  setTimeout(() => spark.remove(), 420);
+  particles.push({
+    x: x,
+    y: y,
+    vx: (Math.random() - 0.5) * 2,
+    vy: (Math.random() - 0.5) * 2,
+    gravity: 0.04,
+    drag: 0.92,
+    size: 2.5 + Math.random() * 2.5,
+    aspect: 1,
+    shape: 'circle',
+    color: '#5eead4',
+    rotation: 0,
+    rotationSpeed: 0,
+    alpha: 0.85,
+    life: 0,
+    maxLife: 14,
+  });
+
+  startCanvasLoop();
 }

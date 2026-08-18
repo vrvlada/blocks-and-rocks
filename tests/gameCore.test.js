@@ -124,6 +124,29 @@ test('hasAvailableMovesOn and isGameOverOn consider piece rotations, hammers, an
   assert.equal(G.isGameOverOn(G.makeGrid(), G.SIZE, tray, 0, 0), false);
 });
 
+test('isGameOverOn: stuck player with active bomb is still game over (bomb deadlock regression)', () => {
+  // Regresija: bombe odbrojavaju samo na potez. Ako igrač nema nijedan potez
+  // (ni postavljanje, ni čekić, ni zameru), bomba se nikada ne može deaktivirati —
+  // pa je KRAJ IGRE ispravan čak i dok je bomba aktivna (inače igra večno visi).
+  const grid = G.makeGrid();
+  // Popuni celu tablu (najmanji oblik 1x1 ne može stati nigde)...
+  for (let r = 0; r < G.SIZE; r++) {
+    for (let c = 0; c < G.SIZE; c++) {
+      grid[r][c] = { color: '#333', hp: 1, maxHp: 1 };
+    }
+  }
+  // ...a na jednom polju je aktivna bomba (koja blokira taj deo table).
+  grid[3][3] = { color: '#f00', bomb: true, timer: 2, hp: 1, maxHp: 1 };
+  const tray = [{ shape: [[0, 0]] }];
+
+  // Nema slobodnih polja -> nema poteza
+  assert.equal(G.hasAvailableMovesOn(grid, G.SIZE, tray, 0, 0), false);
+  // Bomba je aktivna...
+  assert.equal(G.hasActiveBombsOn(grid, G.SIZE), true);
+  // ... ali i dalje game over (nema se kako deaktivirati bombu)
+  assert.equal(G.isGameOverOn(grid, G.SIZE, tray, 0, 0), true);
+});
+
 test('tray with only null pieces has no placement', () => {
   assert.equal(G.trayAnyPlacementOn(G.makeGrid(), G.SIZE, [null, null, null]), false);
 });
@@ -443,21 +466,25 @@ test('getFibonacciRockMilestone and spawn config calculate correct milestones', 
 });
 
 test('getBombInterval scales countdown interval between bombs', () => {
-  // < 3k: 15..20
-  assert.equal(G.getBombInterval(0, () => 0), 15);
-  assert.equal(G.getBombInterval(2999, () => 0.99), 20);
+  // < 3k: 26..34
+  assert.equal(G.getBombInterval(0, () => 0), 26);
+  assert.equal(G.getBombInterval(2999, () => 0.99), 34);
 
-  // 3k..7k: 20..25
-  assert.equal(G.getBombInterval(3000, () => 0), 20);
-  assert.equal(G.getBombInterval(6999, () => 0.99), 25);
+  // 3k..5k: 18..24
+  assert.equal(G.getBombInterval(3000, () => 0), 18);
+  assert.equal(G.getBombInterval(4999, () => 0.99), 24);
 
-  // 7k..20k: 16..22
-  assert.equal(G.getBombInterval(7000, () => 0), 16);
-  assert.equal(G.getBombInterval(19999, () => 0.99), 22);
+  // 5k..10k: 14..18
+  assert.equal(G.getBombInterval(5000, () => 0), 14);
+  assert.equal(G.getBombInterval(9999, () => 0.99), 18);
 
-  // 20k+: 12..18
-  assert.equal(G.getBombInterval(20000, () => 0), 12);
-  assert.equal(G.getBombInterval(50000, () => 0.99), 18);
+  // 10k..20k: 11..15
+  assert.equal(G.getBombInterval(10000, () => 0), 11);
+  assert.equal(G.getBombInterval(19999, () => 0.99), 15);
+
+  // 20k+: 9..13
+  assert.equal(G.getBombInterval(20000, () => 0), 9);
+  assert.equal(G.getBombInterval(50000, () => 0.99), 13);
 });
 
 test('getBombInitialTimer provides turn-based countdown for bombs', () => {
@@ -644,4 +671,111 @@ test('getIsPieceRotationLocked and pieceAnyPlacementOn with locked rotation', ()
 
   // If locked, it CANNOT rotate and therefore fails to fit in vertical slot
   assert.equal(G.pieceAnyPlacementOn(grid, 4, horizDomino, true), false);
+});
+
+test('Frost Hazard: getFrostHazardMilestone, getDiagonalOccupiedCells, and applyFrostFreeze', () => {
+  // 1. getFrostHazardMilestone
+  assert.equal(G.getFrostHazardMilestone(0), -1);
+  assert.equal(G.getFrostHazardMilestone(9999), -1);
+  assert.equal(G.getFrostHazardMilestone(10000), 0);
+  assert.equal(G.getFrostHazardMilestone(14999), 0);
+  assert.equal(G.getFrostHazardMilestone(15000), 1);
+  assert.equal(G.getFrostHazardMilestone(19999), 1);
+  assert.equal(G.getFrostHazardMilestone(20000), 2);
+  assert.equal(G.getFrostHazardMilestone(25000), 3);
+
+  // 2. getDiagonalOccupiedCells
+  const grid = G.makeGrid(8);
+  // Frost cube placed at (3, 3)
+  // Place blocks along diagonals:
+  grid[2][2] = { hp: 1, maxHp: 1, color: '#f00' }; // NW step 1
+  grid[1][1] = { hp: 2, maxHp: 2, color: '#0f0' }; // NW step 2
+  grid[1][5] = { hp: 1, maxHp: 1, color: '#00f' }; // NE step 2 (step 1 at (2,4) is empty)
+  grid[4][2] = { hp: 1, maxHp: 1, color: '#ff0' }; // SW step 1
+  grid[5][5] = { hp: 3, maxHp: 3, color: '#granite' }; // SE step 2 (step 1 at (4,4) is empty)
+  // Place non-diagonal block at (3, 4) -> should NOT be included
+  grid[3][4] = { hp: 1, maxHp: 1, color: '#abc' };
+
+  const diagonals = G.getDiagonalOccupiedCells(grid, 8, 3, 3);
+  assert.equal(diagonals.length, 5);
+
+  const keys = new Set(diagonals.map(d => `${d.r}_${d.c}`));
+  assert.ok(keys.has('2_2'));
+  assert.ok(keys.has('1_1'));
+  assert.ok(keys.has('1_5'));
+  assert.ok(keys.has('4_2'));
+  assert.ok(keys.has('5_5'));
+  assert.ok(!keys.has('3_4'));
+
+  // 3. applyFrostFreeze
+  const frozen = G.applyFrostFreeze(grid, 8, 3, 3);
+  assert.equal(frozen.length, 5);
+
+  // Check that all 5 cells got isFrozen = true and +1 HP
+  assert.equal(grid[2][2].isFrozen, true);
+  assert.equal(grid[2][2].hp, 2);
+  assert.equal(grid[2][2].maxHp, 2);
+
+  assert.equal(grid[1][1].isFrozen, true);
+  assert.equal(grid[1][1].hp, 3);
+  assert.equal(grid[1][1].maxHp, 3);
+
+  assert.equal(grid[5][5].isFrozen, true);
+  assert.equal(grid[5][5].hp, 4);
+  assert.equal(grid[5][5].maxHp, 4);
+
+  // Non-diagonal cell was untouched
+  assert.equal(grid[3][4].isFrozen, undefined);
+  assert.equal(grid[3][4].hp, 1);
+
+  // Empty diagonal test
+  const emptyGrid = G.makeGrid(8);
+  const emptyFrozen = G.applyFrostFreeze(emptyGrid, 8, 0, 0);
+  assert.equal(emptyFrozen.length, 0);
+});
+
+test('getCompletedLinesForPlacement detects bomb in completed line for defusal', () => {
+  const grid = G.makeGrid(4);
+  // Row 1 has 3 blocks, one of which is a bomb with 1 tick left
+  grid[1][0] = { color: '#000', hp: 1, maxHp: 1, bomb: true, timer: 1 };
+  grid[1][1] = { color: '#fff', hp: 1, maxHp: 1 };
+  grid[1][2] = { color: '#fff', hp: 1, maxHp: 1 };
+
+  // Placing block at (1, 3) completes row 1
+  const res = G.getCompletedLinesForPlacement(grid, 4, [[0, 0]], 1, 3);
+  assert.deepEqual(res.rows, [1]);
+  assert.equal(res.cells.length, 4);
+
+  // The bomb at (1, 0) is part of the cleared cells
+  const bombCell = res.cells.find(c => c.r === 1 && c.c === 0);
+  assert.ok(bombCell, 'Bomb cell at (1, 0) must be included in cleared line cells');
+});
+
+test('formatShareScoreText formats share text with score, combo, and URL', () => {
+  const shareText = G.formatShareScoreText({
+    score: 12500,
+    comboStreak: 4,
+    sub: 'Takticka slagalica',
+    shareScored: 'Osvojio sam',
+    sharePoints: 'poena',
+    shareBestCombo: 'Najveci kombo: x',
+    shareChallenge: 'Mozes li me stici? 🚀',
+    url: 'https://blocks-and-rocks.web.app',
+  });
+
+  assert.ok(shareText.includes('Blocks and Rocks — Takticka slagalica'));
+  assert.ok(shareText.includes('12,500') || shareText.includes('12.500') || shareText.includes('12500'));
+  assert.ok(shareText.includes('🔥 Najveci kombo: x4'));
+  assert.ok(shareText.includes('Mozes li me stici? 🚀'));
+  assert.ok(shareText.includes('🎮 https://blocks-and-rocks.web.app'));
+});
+
+test('formatShareScoreText handles combo <= 1 without combo line', () => {
+  const shareText = G.formatShareScoreText({
+    score: 350,
+    comboStreak: 1,
+  });
+
+  assert.ok(!shareText.includes('🔥'));
+  assert.ok(shareText.includes('350'));
 });

@@ -13,7 +13,7 @@ import { escapeHtml } from './utils.js';
 
 const PAGE_SIZE = 25;
 const COUNTRY_PAGE_SIZE = 100;
-const MAX_ENTRIES_PER_USER = 3;
+export const MAX_ENTRIES_PER_USER = 3;
 
 let D = null;
 const FB = () => D.getFirebase();
@@ -36,7 +36,22 @@ try {
   const savedGlobal = localStorage.getItem('blocksrocks_cached_global_top');
   if (savedGlobal) cachedGlobalTop = JSON.parse(savedGlobal);
 } catch(_) {}
+try {
+  // FIX (#11): keš državnog rekorda u localStorage — simetrično globalnom,
+  // da bottom-widget ne mora na svaki reload da ide na mrežu.
+  const savedCountry = localStorage.getItem('blocksrocks_cached_country_top');
+  if (savedCountry) cachedCountryTop = JSON.parse(savedCountry);
+} catch(_) {}
 let isFetchingBottomRecords = false;
+
+function persistCountryTop() {
+  try {
+    localStorage.setItem('blocksrocks_cached_country_top', JSON.stringify(cachedCountryTop));
+    if (cachedCountryTop && typeof cachedCountryTop.score === 'number') {
+      localStorage.setItem('blocksrocks_cached_country_top_score', String(cachedCountryTop.score));
+    }
+  } catch(_) {}
+}
 
 export function getCachedGlobalTopScore(){
   if (cachedGlobalTop && typeof cachedGlobalTop.score === 'number') {
@@ -397,6 +412,7 @@ export async function updateBottomRecords(forceFetch = false) {
     }
     if (!cachedCountryTop || currentPB >= (cachedCountryTop.score || 0) || (cachedCountryTop.username === currentUsername && currentPB > (cachedCountryTop.score || 0))) {
       cachedCountryTop = { username: currentUsername, score: currentPB, countryCode: effectiveCode };
+      persistCountryTop();
     }
   }
 
@@ -474,6 +490,7 @@ export async function updateBottomRecords(forceFetch = false) {
       } else {
         cachedCountryTop = countryDoc;
       }
+      persistCountryTop();
       if (elCountryPlayer) elCountryPlayer.textContent = cachedCountryTop.username || '—';
       if (elCountryPoints) elCountryPoints.textContent = Number(cachedCountryTop.score || 0).toLocaleString();
     } else if (!cachedCountryTop) {
