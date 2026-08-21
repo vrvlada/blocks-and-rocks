@@ -34,9 +34,15 @@ Gemini_Generated_Image_*.jpg
 .vscode/
 _chk_*.cjs
 
-# Google Play Store listing resursi (van www)
 screenshots/
 icon-512.png
 blur.jpg
 tools/
+
+# Secrets / Credentials
+client_secret*.json
+
+# Logs & temp files
+log.txt
+fix_i18n.js
 

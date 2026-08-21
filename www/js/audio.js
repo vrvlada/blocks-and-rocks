@@ -299,9 +299,10 @@ function playArcadePop(startFreq, endFreq, duration, volume, filterFreq = 2200, 
 /**
  * Veseli marimba / glockenspiel zvončić sa toplim harmonijama (zakazan na Web Audio timeline-u).
  */
-function playArcadeBell(freq, duration, volume, shimmer = false, startTime = 0) {
+function playArcadeBell(freq, duration, volume, shimmer = false, startTime = 0, customBus = null) {
   if (muted) return;
   const { ctx, sfx } = getMixer();
+  const bus = customBus || sfx;
   const v = volume * 0.85;
   if (v <= 0) return;
   const t = Math.max(ctx.currentTime, startTime || ctx.currentTime);
@@ -315,7 +316,7 @@ function playArcadeBell(freq, duration, volume, shimmer = false, startTime = 0) 
   gain1.gain.exponentialRampToValueAtTime(0.0001, t + duration);
 
   osc1.connect(gain1);
-  gain1.connect(sfx);
+  gain1.connect(bus);
   osc1.start(t);
   osc1.stop(t + duration);
   osc1.onended = () => {
@@ -331,7 +332,7 @@ function playArcadeBell(freq, duration, volume, shimmer = false, startTime = 0) 
   gain2.gain.exponentialRampToValueAtTime(0.0001, t + duration * 0.65);
 
   osc2.connect(gain2);
-  gain2.connect(sfx);
+  gain2.connect(bus);
   osc2.start(t);
   osc2.stop(t + duration);
   osc2.onended = () => {
@@ -348,7 +349,7 @@ function playArcadeBell(freq, duration, volume, shimmer = false, startTime = 0) 
     gain3.gain.exponentialRampToValueAtTime(0.0001, t + duration * 0.4);
 
     osc3.connect(gain3);
-    gain3.connect(sfx);
+    gain3.connect(bus);
     osc3.start(t);
     osc3.stop(t + duration);
     osc3.onended = () => {
@@ -440,10 +441,10 @@ export function sfxRotate(){
  */
 export function sfxClear(){
   if (muted) return;
-  const ctx = getAudioCtx();
+  const { ctx, combo } = getMixer();
   const t0 = ctx.currentTime;
-  playArcadeBell(587.33, 0.20, 0.45, true, t0);        // D5
-  playArcadeBell(880.00, 0.30, 0.50, true, t0 + 0.055); // A5
+  playArcadeBell(587.33, 0.20, 0.45, true, t0, combo);        // D5
+  playArcadeBell(880.00, 0.30, 0.50, true, t0 + 0.055, combo); // A5
   haptic('success');
 }
 
@@ -475,43 +476,41 @@ export function playComboAudio(streak, lines){
   ];
 
   const baseIdx = Math.min(notes.length - 3, Math.max(0, comboLevel - 1));
-  const ctx = getAudioCtx();
+  const { ctx, combo } = getMixer();
   const t0 = ctx.currentTime;
 
   if (l === 1 && s === 1) {
     // 1 obična linija: D5 -> A5
-    playArcadeBell(notes[0], 0.22, 0.45, true, t0);
-    playArcadeBell(notes[3], 0.32, 0.52, true, t0 + 0.055);
+    playArcadeBell(notes[0], 0.22, 0.45, true, t0, combo);
+    playArcadeBell(notes[3], 0.32, 0.52, true, t0 + 0.055, combo);
   } else if (l === 2 || comboLevel === 2) {
     // Double clear / 2x Combo: D5 -> F#5 -> A5
-    playArcadeBell(notes[baseIdx], 0.20, 0.45, true, t0);
-    playArcadeBell(notes[baseIdx + 1], 0.22, 0.50, true, t0 + 0.050);
-    playArcadeBell(notes[baseIdx + 2], 0.35, 0.55, true, t0 + 0.100);
+    playArcadeBell(notes[baseIdx], 0.20, 0.45, true, t0, combo);
+    playArcadeBell(notes[baseIdx + 1], 0.22, 0.50, true, t0 + 0.050, combo);
+    playArcadeBell(notes[baseIdx + 2], 0.35, 0.55, true, t0 + 0.100, combo);
   } else if (l === 3 || comboLevel === 3) {
     // Triple clear / 3x Combo: 4-note veseli arpeggio
-    playArcadeBell(notes[baseIdx], 0.18, 0.45, true, t0);
-    playArcadeBell(notes[baseIdx + 1], 0.20, 0.48, true, t0 + 0.045);
-    playArcadeBell(notes[baseIdx + 2], 0.22, 0.52, true, t0 + 0.090);
-    playArcadeBell(notes[baseIdx + 3], 0.38, 0.60, true, t0 + 0.135);
+    playArcadeBell(notes[baseIdx], 0.18, 0.45, true, t0, combo);
+    playArcadeBell(notes[baseIdx + 1], 0.20, 0.48, true, t0 + 0.045, combo);
+    playArcadeBell(notes[baseIdx + 2], 0.22, 0.52, true, t0 + 0.090, combo);
+    playArcadeBell(notes[baseIdx + 3], 0.38, 0.60, true, t0 + 0.135, combo);
   } else {
     // Quad clear / 4x+ Mega Combo: 5-note trijumfalni kaskadni arpeggio!
     for (let i = 0; i < 5; i++) {
       const nIdx = Math.min(notes.length - 1, baseIdx + i);
-      playArcadeBell(notes[nIdx], 0.24 + i * 0.03, 0.46 + i * 0.04, true, t0 + i * 0.040);
+      playArcadeBell(notes[nIdx], 0.24 + i * 0.03, 0.46 + i * 0.04, true, t0 + i * 0.040, combo);
     }
   }
 
   // Ako postoji comboAudioBuffer i uključen je u podešavanjima, sinhronizovano pusti
-  const comboVol = Math.max(0, Math.min(1, audioSettings.comboVolume)) * 0.14;
-  if (comboAudioBuffer && comboVol > 0) {
+  if (comboAudioBuffer && audioSettings.comboVolume > 0) {
     try {
-      const { combo } = getMixer();
       const source = ctx.createBufferSource();
       source.buffer = comboAudioBuffer;
       const rate = Math.min(3.0, Math.pow(2, (comboLevel - 1) * 2 / 12));
       source.playbackRate.value = rate;
       const gain = ctx.createGain();
-      gain.gain.setValueAtTime(comboVol, t0);
+      gain.gain.setValueAtTime(0.14, t0); // Base volume
       source.connect(gain);
       gain.connect(combo);
       source.onended = () => { try { source.disconnect(); gain.disconnect(); } catch(_){} };

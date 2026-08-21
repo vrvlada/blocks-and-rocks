@@ -16,6 +16,8 @@ function _reducedMotion(){
   return !!(D && D.getReducedMotionEnabled && D.getReducedMotionEnabled());
 }
 
+import { DOMPool } from './utils.js';
+
 /* ═══ SCREEN SHAKE ═══ */
 export function triggerScreenShake(intensity = 'light'){
   if(_reducedMotion()) return;
@@ -34,8 +36,22 @@ export function triggerScreenShake(intensity = 'light'){
  * ══════════════════════════════════════════════════════════════════════ */
 let canvas = null;
 let ctx = null;
-let particles = [];
+
+const MAX_PARTICLES = 300;
+const particles = Array.from({length: MAX_PARTICLES}, () => ({
+  active: false, x: 0, y: 0, vx: 0, vy: 0, gravity: 0, drag: 0, 
+  size: 0, aspect: 1, shape: 'circle', color: '#fff', 
+  rotation: 0, rotationSpeed: 0, alpha: 0, life: 0, maxLife: 0
+}));
 let canvasRAF = null;
+let cachedDPR = 1;
+
+function getFreeParticle() {
+  for (let i = 0; i < MAX_PARTICLES; i++) {
+    if (!particles[i].active) return particles[i];
+  }
+  return particles[0];
+}
 
 function initCanvasEngine(){
   canvas = document.getElementById('confettiCanvas');
@@ -48,12 +64,11 @@ function initCanvasEngine(){
   const resize = () => {
     if(!canvas) return;
     // Ograniči DPR na maksimalno 1.5 na telefonima (štedi 50-60% GPU memorije i fillrate-a)
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    canvas.width = Math.round(window.innerWidth * dpr);
-    canvas.height = Math.round(window.innerHeight * dpr);
+    cachedDPR = Math.min(window.devicePixelRatio || 1, 1.5);
+    canvas.width = Math.round(window.innerWidth * cachedDPR);
+    canvas.height = Math.round(window.innerHeight * cachedDPR);
     canvas.style.width = window.innerWidth + 'px';
     canvas.style.height = window.innerHeight + 'px';
-    if(ctx) ctx.scale(dpr, dpr);
   };
   window.addEventListener('resize', resize, { passive: true });
   resize();
@@ -66,30 +81,38 @@ function ensureCanvas(){
 }
 
 function startCanvasLoop(){
-  if (!canvasRAF && particles.length > 0) {
+  if (!canvasRAF) {
     canvasRAF = requestAnimationFrame(animateCanvasParticles);
   }
 }
 
 function animateCanvasParticles(){
-  if (!ctx || particles.length === 0) {
-    if (ctx && canvas) {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
+  if (!ctx) return;
+  let hasActive = false;
+  for (let i = 0; i < MAX_PARTICLES; i++) {
+    if (particles[i].active) { hasActive = true; break; }
+  }
+
+  if (!hasActive) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     canvasRAF = null;
     return;
   }
 
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = cachedDPR;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
   const screenW = window.innerWidth + 30;
   const screenH = window.innerHeight + 30;
 
-  for (let i = particles.length - 1; i >= 0; i--) {
+  let activeCount = 0;
+  for (let i = 0; i < MAX_PARTICLES; i++) {
     const p = particles[i];
+    if (!p.active) continue;
+    activeCount++;
+
     p.x += p.vx;
     p.y += p.vy;
     p.vy += p.gravity;
@@ -99,7 +122,7 @@ function animateCanvasParticles(){
     p.alpha = Math.max(0, 1 - p.life / p.maxLife);
 
     if (p.alpha <= 0 || p.y > screenH || p.y < -30 || p.x > screenW || p.x < -30) {
-      particles.splice(i, 1);
+      p.active = false;
       continue;
     }
 
@@ -121,7 +144,7 @@ function animateCanvasParticles(){
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-  if (particles.length > 0) {
+  if (activeCount > 0) {
     canvasRAF = requestAnimationFrame(animateCanvasParticles);
   } else {
     canvasRAF = null;
@@ -137,28 +160,26 @@ export function triggerConfetti(count = 30){
   const originX = window.innerWidth / 2;
   const originY = window.innerHeight * 0.42;
 
-  if (particles.length > 120) particles.splice(0, particles.length - 80);
-
   for (let i = 0; i < count; i++) {
     const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
     const speed = 4 + Math.random() * 8;
-    particles.push({
-      x: originX + (Math.random() - 0.5) * 80,
-      y: originY + (Math.random() - 0.5) * 30,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - 4,
-      gravity: 0.22,
-      drag: 0.98,
-      size: 5 + Math.random() * 6,
-      aspect: 0.65,
-      shape: 'rect',
-      color: colors[Math.floor(Math.random() * colors.length)],
-      rotation: Math.random() * 360,
-      rotationSpeed: (Math.random() - 0.5) * 12,
-      alpha: 1,
-      life: 0,
-      maxLife: 35 + Math.floor(Math.random() * 15),
-    });
+    const p = getFreeParticle();
+    p.active = true;
+    p.x = originX + (Math.random() - 0.5) * 80;
+    p.y = originY + (Math.random() - 0.5) * 30;
+    p.vx = Math.cos(angle) * speed;
+    p.vy = Math.sin(angle) * speed - 4;
+    p.gravity = 0.22;
+    p.drag = 0.98;
+    p.size = 5 + Math.random() * 6;
+    p.aspect = 0.65;
+    p.shape = 'rect';
+    p.color = colors[Math.floor(Math.random() * colors.length)];
+    p.rotation = Math.random() * 360;
+    p.rotationSpeed = (Math.random() - 0.5) * 12;
+    p.alpha = 1;
+    p.life = 0;
+    p.maxLife = 35 + Math.floor(Math.random() * 15);
   }
 
   startCanvasLoop();
@@ -171,92 +192,108 @@ export function showScoreFloat(points){
   const now = performance.now();
   if(now - _lastScoreFloat < 150) return; // prevent DOM flooding on rapid clears
   _lastScoreFloat = now;
-  const el = document.createElement('div');
-  el.className = 'score-float';
+  const el = DOMPool.acquire('div', 'score-float');
   el.textContent = '+' + points;
+  
   const scorebox = D && D.scoreEl ? D.scoreEl.closest('.scorebox') : null;
   if(scorebox){
     scorebox.style.position = 'relative';
     scorebox.appendChild(el);
-    el.style.right = '4px';
-    el.style.bottom = '100%';
+  } else {
+    document.body.appendChild(el);
   }
-  setTimeout(()=> el.remove(), (D && D.CONFIG && D.CONFIG.SCORE_FLOAT_DURATION) || 1000);
+  setTimeout(()=> DOMPool.release(el, 'score-float'), (D && D.CONFIG && D.CONFIG.SCORE_FLOAT_DURATION) || 1000);
 }
 
 /* ═══ BIG COMBO ROLLING BONUS COUNTER (Arkadni rastući brojač) ═══ */
+let comboPopupEl = null;
+let comboLabelEl = null;
+let comboNumEl = null;
+let comboRAF = null;
+let comboFinishTimeout = null;
+
 export function showBigComboBonusCounter(bonus, comboStreak = 1, linesCleared = 1, customLabel = null){
   if(bonus <= 0) return;
   const board = (D && D.boardEl) || document.getElementById('board');
   const boardParent = board ? (board.parentElement || document.body) : document.body;
 
-  const existing = document.querySelectorAll('.combo-bonus-popup');
-  existing.forEach(el => el.remove());
-
-  const popup = document.createElement('div');
-  popup.className = 'combo-bonus-popup' + (comboStreak >= 2 || bonus >= 300 ? ' mega-combo' : '');
-
-  // Oznaka / značka iznad brojača
-  const label = document.createElement('div');
-  label.className = 'combo-bonus-label';
-  if(customLabel){
-    label.innerHTML = customLabel;
-  } else if(comboStreak > 1) {
-    label.innerHTML = `🔥 KOMBO NIZ <span class="combo-x">x${comboStreak}</span>`;
-  } else if(linesCleared > 1) {
-    label.innerHTML = `⚡ MULTI-LINIJA <span class="combo-x">x${linesCleared}</span>`;
-  } else {
-    label.textContent = '✨ BONUS POENI';
+  if(!comboPopupEl){
+    comboPopupEl = document.createElement('div');
+    comboLabelEl = document.createElement('div');
+    comboLabelEl.className = 'combo-bonus-label';
+    comboPopupEl.appendChild(comboLabelEl);
+    
+    comboNumEl = document.createElement('div');
+    comboNumEl.className = 'combo-bonus-number';
+    comboPopupEl.appendChild(comboNumEl);
+    
+    boardParent.appendChild(comboPopupEl);
   }
-  popup.appendChild(label);
 
-  // Veliki broj
-  const numEl = document.createElement('div');
-  numEl.className = 'combo-bonus-number';
-  numEl.textContent = '+0';
-  popup.appendChild(numEl);
+  // Otkazivanje starih animacija
+  if(comboRAF) cancelAnimationFrame(comboRAF);
+  if(comboFinishTimeout) clearTimeout(comboFinishTimeout);
 
-  boardParent.appendChild(popup);
+  // Resetovanje stanja i animacija
+  comboPopupEl.className = 'combo-bonus-popup';
+  if(comboStreak >= 2 || bonus >= 300) comboPopupEl.classList.add('mega-combo');
+  
+  comboPopupEl.style.animation = 'none';
+  void comboPopupEl.offsetWidth; // Force reflow za restartovanje CSS animacije
+  comboPopupEl.style.animation = '';
+
+  // Postavljanje labele
+  if(customLabel){
+    comboLabelEl.innerHTML = customLabel;
+  } else if(comboStreak > 1) {
+    comboLabelEl.innerHTML = `🔥 KOMBO NIZ <span class="combo-x">x${comboStreak}</span>`;
+  } else if(linesCleared > 1) {
+    comboLabelEl.innerHTML = `⚡ MULTI-LINIJA <span class="combo-x">x${linesCleared}</span>`;
+  } else {
+    comboLabelEl.textContent = '✨ BONUS POENI';
+  }
+
+  comboNumEl.textContent = '+0';
 
   if(_reducedMotion()){
-    numEl.textContent = '+' + bonus;
-    setTimeout(() => {
-      popup.classList.add('fly-out');
-      setTimeout(() => popup.remove(), 300);
+    comboNumEl.textContent = '+' + bonus;
+    comboFinishTimeout = setTimeout(() => {
+      comboPopupEl.classList.add('fly-out');
     }, 700);
     return;
   }
 
-  // Snappy i glatko odbrojavanje od +0 do ciljanog iznosa (260ms - 420ms)
-  const duration = Math.min(420, Math.max(260, bonus * 0.6));
+  const duration = 350;
   const startTime = performance.now();
   let lastVal = -1;
+  let lastTextUpdate = 0;
 
   function tick(now){
     const elapsed = now - startTime;
     const progress = Math.min(1, elapsed / duration);
-    // Ease-out cubic za sočan završetak
-    const ease = 1 - Math.pow(1 - progress, 3);
+    // Ease-out Quartic
+    const ease = 1 - Math.pow(1 - progress, 4);
     const currentVal = Math.round(ease * bonus);
 
-    if(currentVal !== lastVal){
-      numEl.textContent = '+' + currentVal;
+    // Throttle DOM text update to ~30 FPS (33ms) to prevent heavy repaint lag while dragging
+    if(currentVal !== lastVal && (now - lastTextUpdate > 33 || progress === 1)){
+      comboNumEl.textContent = '+' + currentVal;
       lastVal = currentVal;
+      lastTextUpdate = now;
     }
 
     if(progress < 1){
-      requestAnimationFrame(tick);
+      comboRAF = requestAnimationFrame(tick);
     } else {
-      numEl.textContent = '+' + bonus;
-      popup.classList.add('finished');
-      setTimeout(()=>{
-        popup.classList.add('fly-out');
-        setTimeout(() => popup.remove(), 320);
+      comboNumEl.textContent = '+' + bonus;
+      comboPopupEl.classList.add('finished');
+      comboFinishTimeout = setTimeout(()=>{
+        comboPopupEl.classList.add('fly-out');
       }, 550);
     }
   }
 
-  requestAnimationFrame(tick);
+  comboRAF = requestAnimationFrame(tick);
 }
 
 /* ═══ ARCADE 3D BOARD ACTION ALERT (BOMB PLACED / GOLDEN CUBE) ═══ */
@@ -265,44 +302,56 @@ export function showBoardActionAlert(text, type = 'bomb'){
   const boardParent = board ? (board.parentElement || document.body) : document.body;
 
   const existing = document.querySelectorAll('.board-action-alert');
-  existing.forEach(el => el.remove());
+  existing.forEach(el => DOMPool.release(el, 'board-action-alert'));
 
-  const alert = document.createElement('div');
-  alert.className = 'board-action-alert alert-' + type;
-
-  // Header tag / badge
-  const tag = document.createElement('div');
-  tag.className = 'action-alert-tag';
+  const alert = DOMPool.acquire('div', 'board-action-alert');
+  
+  const content = DOMPool.acquire('div', 'action-alert-content');
+  content.innerHTML = type === 'golden' ? '💎' : '💣';
+  
+  const tag = DOMPool.acquire('div', 'action-alert-tag');
   if(type === 'bomb'){
     tag.innerHTML = '💣 WARNING';
   } else if(type === 'gold'){
     tag.innerHTML = '✨ PULSE BONUS';
   } else if(type === 'frost'){
     tag.innerHTML = '❄️ FROST HAZARD';
-  } else if(type === 'defused'){
-    tag.innerHTML = '🛡️ DEFUSED';
+  } else  if (type === 'golden') {
+    alert.classList.add('golden');
+    tag.style.color = '#fbbf24';
   } else {
-    tag.innerHTML = '⚡ ALERT';
+    tag.style.color = '#ef4444';
   }
-  alert.appendChild(tag);
-
-  // Main 3D Text
-  const title = document.createElement('div');
-  title.className = 'action-alert-title';
+  
+  const title = DOMPool.acquire('div', 'action-alert-title');
   title.innerHTML = text;
-  alert.appendChild(title);
-
+  
+  content.appendChild(tag);
+  content.appendChild(title);
+  alert.appendChild(content);
   boardParent.appendChild(alert);
 
   if(_reducedMotion()){
-    setTimeout(() => alert.remove(), 700);
+    setTimeout(() => {
+      DOMPool.release(title, 'action-alert-title');
+      DOMPool.release(tag, 'action-alert-tag');
+      DOMPool.release(content, 'action-alert-content');
+      DOMPool.release(alert, 'board-action-alert');
+    }, 700);
     return;
   }
 
+  void alert.offsetWidth; // Reflow
+  
   setTimeout(() => {
-    alert.classList.add('fly-out');
-    setTimeout(() => alert.remove(), 320);
-  }, 680);
+    alert.style.animation = 'actionAlertExit 0.32s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
+    setTimeout(() => {
+      DOMPool.release(title, 'action-alert-title');
+      DOMPool.release(tag, 'action-alert-tag');
+      DOMPool.release(content, 'action-alert-content');
+      DOMPool.release(alert, 'board-action-alert');
+    }, 320);
+  }, 1800);
 }
 
 /* ═══ LINE-CLEAR / BOMB PARTICLES (Canvas 2D) ═══ */
@@ -318,36 +367,32 @@ export function spawnParticles(cellsToClear, colorOverride){
   const total = cellsToClear.length || 1;
   const count = total > 12 ? 2 : (total > 6 ? 3 : 4);
   const grid = D.getGrid ? D.getGrid() : null;
-
-  if (particles.length > 120) particles.splice(0, particles.length - 80);
-
   cellsToClear.forEach(key=>{
     const [r,c] = key.split('_').map(Number);
     const cellData = grid && grid[r] ? grid[r][c] : null;
     const color = colorOverride || (cellData && cellData.color) || '#5eead4';
     const cx = rect.left + padding + c*(cellW+gap) + cellW/2;
     const cy = rect.top + padding + r*(cellW+gap) + cellW/2;
-
     for(let i=0; i<count; i++){
       const angle = (Math.PI * 2 * i / count) + Math.random() * 0.5;
       const speed = 2.5 + Math.random() * 4;
-      particles.push({
-        x: cx,
-        y: cy,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        gravity: 0.08,
-        drag: 0.94,
-        size: 3.5 + Math.random() * 3.5,
-        aspect: 1,
-        shape: 'circle',
-        color: color,
-        rotation: Math.random() * 360,
-        rotationSpeed: (Math.random() - 0.5) * 8,
-        alpha: 1,
-        life: 0,
-        maxLife: 20 + Math.floor(Math.random() * 10),
-      });
+      const p = getFreeParticle();
+      p.active = true;
+      p.x = cx;
+      p.y = cy;
+      p.vx = Math.cos(angle) * speed;
+      p.vy = Math.sin(angle) * speed;
+      p.gravity = 0.08;
+      p.drag = 0.94;
+      p.size = 3.5 + Math.random() * 3.5;
+      p.aspect = 1;
+      p.shape = 'circle';
+      p.color = color;
+      p.rotation = Math.random() * 360;
+      p.rotationSpeed = (Math.random() - 0.5) * 8;
+      p.alpha = 1;
+      p.life = 0;
+      p.maxLife = 20 + Math.floor(Math.random() * 10);
     }
   });
 
@@ -368,8 +413,6 @@ export function spawnCrackParticles(cellsToClear){
   const count = total > 12 ? 3 : (total > 6 ? 4 : 5);
   const rockColors = ['#3d4454', '#5a6378', '#8690a8', '#d0d7e8', '#f59e0b'];
 
-  if (particles.length > 120) particles.splice(0, particles.length - 80);
-
   cellsToClear.forEach(key=>{
     const [r,c] = key.split('_').map(Number);
     const cx = rect.left + padding + c*(cellW+gap) + cellW/2;
@@ -378,23 +421,23 @@ export function spawnCrackParticles(cellsToClear){
     for(let i=0; i<count; i++){
       const angle = (Math.PI * 2 * i / count) + (Math.random() - 0.5) * 0.8;
       const speed = 2 + Math.random() * 3.5;
-      particles.push({
-        x: cx + (Math.random() - 0.5) * 8,
-        y: cy + (Math.random() - 0.5) * 8,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 1,
-        gravity: 0.22,
-        drag: 0.95,
-        size: 3 + Math.random() * 3.5,
-        aspect: 0.8,
-        shape: 'rect',
-        color: rockColors[Math.floor(Math.random() * rockColors.length)],
-        rotation: Math.random() * 360,
-        rotationSpeed: (Math.random() - 0.5) * 14,
-        alpha: 1,
-        life: 0,
-        maxLife: 22 + Math.floor(Math.random() * 10),
-      });
+      const p = getFreeParticle();
+      p.active = true;
+      p.x = cx + (Math.random() - 0.5) * 8;
+      p.y = cy + (Math.random() - 0.5) * 8;
+      p.vx = Math.cos(angle) * speed;
+      p.vy = Math.sin(angle) * speed - 1;
+      p.gravity = 0.22;
+      p.drag = 0.95;
+      p.size = 3 + Math.random() * 3.5;
+      p.aspect = 0.8;
+      p.shape = 'rect';
+      p.color = rockColors[Math.floor(Math.random() * rockColors.length)];
+      p.rotation = Math.random() * 360;
+      p.rotationSpeed = (Math.random() - 0.5) * 14;
+      p.alpha = 1;
+      p.life = 0;
+      p.maxLife = 22 + Math.floor(Math.random() * 10);
     }
   });
 
@@ -402,21 +445,13 @@ export function spawnCrackParticles(cellsToClear){
 }
 
 /* ═══ BOMB SHOCKWAVE ═══ */
-export function spawnShockwave(r,c){
+export function spawnShockwave(x, y){
   if(_reducedMotion()) return;
-  const SIZE = D && D.SIZE ? D.SIZE : 8;
-  if (!D || !D.boardEl) return;
-  const rect = D.boardEl.getBoundingClientRect();
-  const padding = 8, gap = 4;
-  const cellW = (rect.width - padding*2 - gap*(SIZE-1)) / SIZE;
-  const cx = rect.left + padding + c*(cellW+gap) + cellW/2;
-  const cy = rect.top + padding + r*(cellW+gap) + cellW/2;
-  const wave = document.createElement('div');
-  wave.className = 'shockwave';
-  wave.style.left = cx + 'px';
-  wave.style.top = cy + 'px';
+  const wave = DOMPool.acquire('div', 'touch-wave');
+  wave.style.left = x + 'px';
+  wave.style.top = y + 'px';
   document.body.appendChild(wave);
-  setTimeout(()=> wave.remove(), 450);
+  setTimeout(()=> DOMPool.release(wave, 'touch-wave'), 450);
 }
 
 /* ═══ ICE SHATTER PARTICLES (Canvas 2D) ═══ */
@@ -435,28 +470,26 @@ export function spawnIceShatterParticles(r, c) {
   const iceColors = ['#e0f2fe', '#bae6fd', '#7dd3fc', '#38bdf8', '#ffffff'];
   const count = 10;
 
-  if (particles.length > 120) particles.splice(0, particles.length - 80);
-
   for (let i = 0; i < count; i++) {
     const angle = (Math.PI * 2 * i / count) + (Math.random() - 0.5) * 0.5;
     const speed = 2.5 + Math.random() * 4;
-    particles.push({
-      x: cx + (Math.random() - 0.5) * 8,
-      y: cy + (Math.random() - 0.5) * 8,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - 1.2,
-      gravity: 0.18,
-      drag: 0.95,
-      size: 3 + Math.random() * 3.5,
-      aspect: 0.7,
-      shape: 'rect',
-      color: iceColors[Math.floor(Math.random() * iceColors.length)],
-      rotation: Math.random() * 360,
-      rotationSpeed: (Math.random() - 0.5) * 18,
-      alpha: 1,
-      life: 0,
-      maxLife: 24 + Math.floor(Math.random() * 10),
-    });
+    const p = getFreeParticle();
+    p.active = true;
+    p.x = cx + (Math.random() - 0.5) * 8;
+    p.y = cy + (Math.random() - 0.5) * 8;
+    p.vx = Math.cos(angle) * speed;
+    p.vy = Math.sin(angle) * speed - 1.2;
+    p.gravity = 0.18;
+    p.drag = 0.95;
+    p.size = 3 + Math.random() * 3.5;
+    p.aspect = 0.7;
+    p.shape = 'rect';
+    p.color = iceColors[Math.floor(Math.random() * iceColors.length)];
+    p.rotation = Math.random() * 360;
+    p.rotationSpeed = (Math.random() - 0.5) * 18;
+    p.alpha = 1;
+    p.life = 0;
+    p.maxLife = 24 + Math.floor(Math.random() * 10);
   }
 
   startCanvasLoop();
@@ -471,25 +504,23 @@ export function spawnSpark(x, y) {
   if (sparkThrottle % 2 !== 0) return;
   if (!ensureCanvas()) return;
 
-  if (particles.length > 60) return;
-
-  particles.push({
-    x: x,
-    y: y,
-    vx: (Math.random() - 0.5) * 2,
-    vy: (Math.random() - 0.5) * 2,
-    gravity: 0.04,
-    drag: 0.92,
-    size: 2.5 + Math.random() * 2.5,
-    aspect: 1,
-    shape: 'circle',
-    color: '#5eead4',
-    rotation: 0,
-    rotationSpeed: 0,
-    alpha: 0.85,
-    life: 0,
-    maxLife: 14,
-  });
+  const p = getFreeParticle();
+  p.active = true;
+  p.x = x;
+  p.y = y;
+  p.vx = (Math.random() - 0.5) * 2;
+  p.vy = (Math.random() - 0.5) * 2;
+  p.gravity = 0.04;
+  p.drag = 0.92;
+  p.size = 2.5 + Math.random() * 2.5;
+  p.aspect = 1;
+  p.shape = 'circle';
+  p.color = '#5eead4';
+  p.rotation = 0;
+  p.rotationSpeed = 0;
+  p.alpha = 0.85;
+  p.life = 0;
+  p.maxLife = 14;
 
   startCanvasLoop();
 }

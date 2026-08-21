@@ -274,20 +274,13 @@
   }
 
   /**
-   * Proverava da li je igrač prešao prag za dobijanje novih zamena fioke (na svakih 5.000 poena).
+   * Proverava da li je igrač prešao prag za dobijanje powerup-ova (čekić i zamena na svakih 5.000 poena).
    */
   function calculatePowerupRewards(prevScore, newScore) {
-    const hammersEarned = 0;
-    const rerollsEarned = Math.max(0, Math.floor((newScore || 0) / 5000) - Math.floor((prevScore || 0) / 5000));
+    const earned = Math.max(0, Math.floor((newScore || 0) / 5000) - Math.floor((prevScore || 0) / 5000));
+    const hammersEarned = earned;
+    const rerollsEarned = earned;
     return { hammersEarned, rerollsEarned };
-  }
-
-  /**
-   * Proverava da li kombo niz donosi čekić (čekić se dobija posle 5x combo-a, tj. na svakih 5 u nizu).
-   */
-  function calculateComboHammerReward(comboStreak) {
-    if (!comboStreak || comboStreak <= 0) return 0;
-    return (comboStreak % 5 === 0) ? 1 : 0;
   }
 
   /**
@@ -403,50 +396,6 @@
         const val = Math.max(score || 0, pb || 0);
         return { current: Math.min(100000, val), target: 100000, pct: Math.min(100, Math.round((val / 100000) * 100)) };
       }
-    },
-    {
-      id: 'rock_crusher',
-      tier: 'bronze',
-      icon: '🪨',
-      target: 25,
-      check: (stats) => ((stats && stats.rocksCrushed) || 0) >= 25,
-      getProgress: (stats) => {
-        const val = (stats && stats.rocksCrushed) || 0;
-        return { current: Math.min(25, val), target: 25, pct: Math.min(100, Math.round((val / 25) * 100)) };
-      }
-    },
-    {
-      id: 'bomb_defuser',
-      tier: 'silver',
-      icon: '💣',
-      target: 15,
-      check: (stats) => ((stats && stats.bombsDefused) || 0) >= 15,
-      getProgress: (stats) => {
-        const val = (stats && stats.bombsDefused) || 0;
-        return { current: Math.min(15, val), target: 15, pct: Math.min(100, Math.round((val / 15) * 100)) };
-      }
-    },
-    {
-      id: 'combo_master',
-      tier: 'gold',
-      icon: '🔥',
-      target: 5,
-      check: (stats) => ((stats && stats.maxCombo) || 1) >= 5,
-      getProgress: (stats) => {
-        const val = (stats && stats.maxCombo) || 1;
-        return { current: Math.min(5, val), target: 5, pct: Math.min(100, Math.round((val / 5) * 100)) };
-      }
-    },
-    {
-      id: 'line_master',
-      tier: 'gold',
-      icon: '✨',
-      target: 200,
-      check: (stats) => ((stats && stats.linesCleared) || 0) >= 200,
-      getProgress: (stats) => {
-        const val = (stats && stats.linesCleared) || 0;
-        return { current: Math.min(200, val), target: 200, pct: Math.min(100, Math.round((val / 200) * 100)) };
-      }
     }
   ];
 
@@ -465,8 +414,8 @@
     return newlyUnlocked;
   }
 
-  const PULSE_BONUS_POINTS = 250;
-  const PULSE_BONUS_DURATION_SEC = 10;
+  const PULSE_BONUS_POINTS = 500;
+  const PULSE_BONUS_DURATION_SEC = 15;
   const PULSE_BONUS_MIN_INTERVAL_MS = 100000; // 100s
   const PULSE_BONUS_MAX_INTERVAL_MS = 150000; // 150s
 
@@ -475,7 +424,7 @@
   const ICE_HAZARD_BONUS_POINTS = 500;
   const FROST_HAZARD_START_SCORE = 10000;
   const FROST_HAZARD_INTERVAL_SCORE = 5000;
-  const FROST_HAZARD_DURATION_SEC = 15;
+  const FROST_HAZARD_MOVES = 5;
   const FROST_HAZARD_BONUS_POINTS = 500;
 
   /**
@@ -551,20 +500,9 @@
       // 21k -> 2 kamena (1 granit 3 HP + 1 običan 2 HP)
       return [{ maxHp: 3 }, { maxHp: 2 }];
     }
-    if (milestoneIndex === 7) {
-      // 34k -> 2 granita (3 HP)
-      return [{ maxHp: 3 }, { maxHp: 3 }];
-    }
-    if (milestoneIndex === 8) {
-      // 55k -> 3 kamena (2 granita + 1 običan)
-      return [{ maxHp: 3 }, { maxHp: 3 }, { maxHp: 2 }];
-    }
-    if (milestoneIndex === 9) {
-      // 89k -> 3 granita (3 HP)
-      return [{ maxHp: 3 }, { maxHp: 3 }, { maxHp: 3 }];
-    }
-    // 144k+ -> 4 granita (3 HP)
-    return [{ maxHp: 3 }, { maxHp: 3 }, { maxHp: 3 }, { maxHp: 3 }];
+    // >= 34k -> Ograničeno na maks 2 granita (3 HP) odjednom 
+    // da bi se sprečio instant Game Over na maloj tabli.
+    return [{ maxHp: 3 }, { maxHp: 3 }];
   }
 
   const MAX_HAMMERS = 2;
@@ -712,14 +650,9 @@
 
   /**
    * Vraća da li je figura fiksna (zaključana za rotaciju):
-   * < 20.000: uvek slobodna rotacija
-   * >= 20.000: 25% šanse da je figura fiksirana/zaključana
+   * UKINUTO - Mehanika zaključavanja rotacije je izbačena iz igre. Uvek vraća false.
    */
   function getIsPieceRotationLocked(score, rng = Math.random) {
-    const s = Number(score) || 0;
-    if (s >= 20000 && rng() < 0.25) {
-      return true;
-    }
     return false;
   }
 
@@ -752,12 +685,10 @@
    * Određuje početni tajmer za bombu (u potezima):
    * < 10.000: 5 poteza
    * 10.000 - 24.999: 4 poteza
-   * 25.000 - 39.999: 3 poteza
-   * >= 40.000: 30% šanse za 2 poteza, inače 3 poteza
+   * >= 25.000: 3 poteza
    */
   function getBombInitialTimer(score, rng = Math.random) {
     const s = Number(score) || 0;
-    if (s >= 40000 && rng() < 0.30) return 2;
     if (s >= 25000) return 3;
     if (s >= 10000) return 4;
     return 5;
@@ -789,17 +720,17 @@
           affectedCells.push({ r: rr, c: cc, hp: 2, maxHp: 2, wasCenter: true });
           spawnedRocksCount++;
         } else if (current) {
-          // Postojeći običan blok se pretvara u oštećeni kamen 1 HP
+          // Postojeći običan blok se pretvara u kamen 2 HP
           if (!current.maxHp || current.maxHp < 2) {
-            grid[rr][cc] = { hp: 1, maxHp: 1, color: '#64748b', isRock: true };
-            affectedCells.push({ r: rr, c: cc, hp: 1, maxHp: 1, wasCenter: false });
+            grid[rr][cc] = { hp: 2, maxHp: 2, color: '#64748b', isRock: true };
+            affectedCells.push({ r: rr, c: cc, hp: 2, maxHp: 2, wasCenter: false });
             spawnedRocksCount++;
           }
         } else {
-          // Prazno polje u radijusu ima 50% šanse da dobije ruševine (1 HP kamen)
+          // Prazno polje u radijusu ima 50% šanse da dobije kamen 2 HP
           if (rng() < 0.50) {
-            grid[rr][cc] = { hp: 1, maxHp: 1, color: '#64748b', isRock: true };
-            affectedCells.push({ r: rr, c: cc, hp: 1, maxHp: 1, wasCenter: false });
+            grid[rr][cc] = { hp: 2, maxHp: 2, color: '#64748b', isRock: true };
+            affectedCells.push({ r: rr, c: cc, hp: 2, maxHp: 2, wasCenter: false });
             spawnedRocksCount++;
           }
         }
@@ -981,7 +912,7 @@
     ICE_HAZARD_BONUS_POINTS,
     FROST_HAZARD_START_SCORE,
     FROST_HAZARD_INTERVAL_SCORE,
-    FROST_HAZARD_DURATION_SEC,
+    FROST_HAZARD_MOVES,
     FROST_HAZARD_BONUS_POINTS,
     FIBONACCI_MILESTONES,
     makeGrid,
@@ -1002,7 +933,6 @@
     validateUsernameFormat,
     calculateComboScore,
     calculatePowerupRewards,
-    calculateComboHammerReward,
     checkNewBadges,
     getRockInterval,
     getRockMaxHp,

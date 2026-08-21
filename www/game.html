@@ -20,6 +20,9 @@
 <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700;800&family=Outfit:wght@800;900&family=Space+Grotesk:wght@700;800&display=swap">
   <link rel="stylesheet" href="styles.css?v=2.9.6">
 </head>
 <body>
@@ -142,7 +145,7 @@
     </div>
 
     <!-- Section 1: Username & Google Account -->
-    <div class="setting-section">
+    <div class="setting-section" id="usernameSectionContainer">
       <div class="setting-label" id="i18n_usernameLabel">👤 KORISNIČKO IME (3-12 karaktera)</div>
       <div style="display:flex; gap:8px;">
         <input type="text" id="usernameInput" maxlength="12" placeholder="VašeIme" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Korisničko ime">
@@ -158,7 +161,7 @@
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:18px; height:18px;" alt="Google Logo">
           <span id="btnLinkGoogleText">Poveži Google nalog</span>
         </button>
-        <div id="googleStatus" style="margin-top:6px; font-family:'JetBrains Mono', monospace; font-size:10px; color:var(--dim);">Sačuvajte rezultat trajno</div>
+        <div id="googleStatus" style="margin-top:6px; font-family:'JetBrains Mono', monospace; font-size:10px; color:var(--dim);">Povežite Google nalog da trajno sačuvate nadimak i rezultate!</div>
       </div>
     </div>
 
@@ -186,30 +189,27 @@
             <span class="stat-lbl" id="i18n_statGames">Partija</span>
           </div>
           <div class="stat-card">
-            <span class="stat-icon">✨</span>
-            <span class="stat-val" id="statLines">0</span>
-            <span class="stat-lbl" id="i18n_statLines">Linija</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-icon">🔥</span>
-            <span class="stat-val" id="statMaxCombo">x1</span>
-            <span class="stat-lbl" id="i18n_statCombo">Maks Kombo</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-icon">💥</span>
-            <span class="stat-val" id="statBombs">0</span>
-            <span class="stat-lbl" id="i18n_statBombs">Bombi</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-icon">🪨</span>
-            <span class="stat-val" id="statRocks">0</span>
-            <span class="stat-lbl" id="i18n_statRocks">Kamenja</span>
-          </div>
-          <div class="stat-card">
             <span class="stat-icon">📈</span>
             <span class="stat-val" id="statAvgScore">0</span>
             <span class="stat-lbl" id="i18n_statAvg">Prosek</span>
           </div>
+          <div class="stat-card">
+            <span class="stat-icon">⏱️</span>
+            <span class="stat-val" id="statAvgTime">0:00</span>
+            <span class="stat-lbl" id="i18n_statAvgTime">Vreme</span>
+          </div>
+        </div>
+
+        <div class="setting-label" id="i18n_comboStatsLabel">🔥 COMBO</div>
+        <div class="combo-counts-grid">
+          <div class="combo-card"><span class="combo-title">x2</span><span class="combo-val" id="statCombo2x">0</span></div>
+          <div class="combo-card"><span class="combo-title">x3</span><span class="combo-val" id="statCombo3x">0</span></div>
+          <div class="combo-card"><span class="combo-title">x4</span><span class="combo-val" id="statCombo4x">0</span></div>
+          <div class="combo-card"><span class="combo-title">x5</span><span class="combo-val" id="statCombo5x">0</span></div>
+          <div class="combo-card"><span class="combo-title">x6</span><span class="combo-val" id="statCombo6x">0</span></div>
+        </div>
+        <div class="combo-master-card">
+          <span class="combo-title">Master Combo (x7+)</span><span class="combo-val" id="statMasterCombos">0</span>
         </div>
       </div>
 
@@ -370,6 +370,17 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- First Run Nickname Modal -->
+<div id="firstRunModal" class="first-run-overlay" role="dialog" aria-modal="true" style="display:none;">
+  <div class="first-run-card">
+    <h3 id="firstRunTitle">DOBRODOŠLI</h3>
+    <p id="firstRunDesc">Unesite jedinstveni nadimak za rang listu i profil.</p>
+    <input type="text" id="firstRunNickname" maxlength="15" autocomplete="off" spellcheck="false" />
+    <div id="firstRunAvailability" class="uavail" style="margin-bottom: 15px; min-height: 16px;"></div>
+    <button id="firstRunStartBtn" class="btn-primary">START</button>
   </div>
 </div>
 

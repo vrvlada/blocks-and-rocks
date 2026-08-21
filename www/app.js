@@ -104,8 +104,31 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 
       if (isNativeApp || !location.search.includes('apiKey')) {
-        // U mobilnoj aplikaciji ili standardnom pokretanju, odmah se prijavljujemo anonimno
-        if (!fb_auth.currentUser) {
+        const PlayGames = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PlayGames;
+        
+        if (isNativeApp && PlayGames && !fb_auth.currentUser) {
+          console.log('[B&R] Pokušaj automatske Play Games prijave (Silent Sign-In)...');
+          PlayGames.signIn({
+            webClientId: '556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com'
+          }).then(playGamesResult => {
+            if (playGamesResult && playGamesResult.serverAuthCode) {
+              if (playGamesResult.displayName) {
+                localStorage.setItem('blocksrocks_pgsDisplayName', playGamesResult.displayName);
+              }
+              const credential = firebase.auth.PlayGamesAuthProvider.credential(playGamesResult.serverAuthCode);
+              return fb_auth.signInWithCredential(credential);
+            }
+          }).then(() => {
+            console.log('[B&R] Play Games silent sign-in uspešan!');
+          }).catch(err => {
+            console.warn('[B&R] Play Games silent sign-in nije uspeo, fallback na anonimno:', err);
+            return fb_auth.signInAnonymously();
+          }).catch(err => {
+            console.warn('[B&R] Firebase Anon Auth failed:', err && err.message);
+            if(!fb_userId) fb_userId = localStorage.getItem('blocksrocks_userId') || 'local_' + Math.random().toString(36).slice(2);
+          });
+        } else if (!fb_auth.currentUser) {
+          // Fallback za web ili ako PGS plugin nije dostupan
           fb_auth.signInAnonymously().catch(err => {
             console.warn('[B&R] Firebase Auth failed:', err.message);
             if(!fb_userId){
@@ -331,11 +354,11 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   function getFullCountryName(code, lang){
     if(!code || code === 'XX' || code.length !== 2){
-      const t = TRANSLATIONS[lang || currentLang] || TRANSLATIONS.sr;
+      const t = TRANSLATIONS[lang || currentLang] || TRANSLATIONS.en;
       return t.tabCountry || 'Država';
     }
     try {
-      const langKey = lang || currentLang || 'sr';
+      const langKey = lang || currentLang || 'en';
       const localeMap = {
         sr: 'sr-Latn',
         en: 'en',
@@ -398,15 +421,15 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
    * ═══════════════════════════════════════════════ */
   // Prevodi: ES modul www/i18n.js (import na vrhu fajla)
 
-  let currentLang = localStorage.getItem('blocksrocks_lang') || 'sr';
+  let currentLang = localStorage.getItem('blocksrocks_lang') || 'en';
 
   function applyLanguage(langCode) {
-    if (!TRANSLATIONS[langCode]) langCode = 'sr';
+    if (!TRANSLATIONS[langCode]) langCode = 'en';
     currentLang = langCode;
     localStorage.setItem('blocksrocks_lang', langCode);
     document.documentElement.lang = langCode;
 
-    const t = TRANSLATIONS[langCode] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[langCode] || TRANSLATIONS.en;
 
     const setText = (id, text) => {
       const el = document.getElementById(id);
@@ -447,6 +470,11 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
     const goTitle = document.getElementById('gameOverHeading') || document.querySelector('#overlay h2');
     if (goTitle) goTitle.textContent = t.gameOverTitle;
+
+    setText('firstRunTitle', t.onboardingTitle);
+    setText('firstRunDesc', t.onboardingDesc);
+    setText('firstRunStartBtn', t.onboardingBtn);
+    setText('btnLinkGoogleText', t.btnLinkGoogle);
 
     setText('newbestLabel', t.newBestLabel);
     setText('gameOverDesc', t.noSpaceMsg);
@@ -598,7 +626,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     userDragOffsetMultiplier = parseFloat(val);
     localStorage.setItem('blocksrocks_dragOffset', val);
     const badge = document.getElementById('dragOffsetVal');
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     const badgeSuffix = t.blocksBadge || 'Kockice';
     if (badge) badge.textContent = val + 'x ' + badgeSuffix;
     const range = document.getElementById('dragOffsetRange');
@@ -607,7 +635,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   function updateHapticSetting(val) {
     setHapticMode(val); // stanje + localStorage: js/audio.js
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     const container = document.getElementById('hapticGroup');
     if (container) {
       container.querySelectorAll('.haptic-btn, .haptic-opt').forEach(btn => {
@@ -863,7 +891,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const googleStatus = document.getElementById('googleStatus');
     if (!btnLinkGoogle || !googleStatus) return;
     const isLinked = localStorage.getItem('blocksrocks_googleLinked') === '1' || (fb_auth && fb_auth.currentUser && !fb_auth.currentUser.isAnonymous && fb_auth.currentUser.providerData.some(p => p.providerId === 'google.com'));
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     if (isLinked) {
       btnLinkGoogle.style.display = 'none';
       const email = localStorage.getItem('blocksrocks_googleEmail') || '';
@@ -872,7 +900,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       googleStatus.style.color = 'var(--accent)';
     } else {
       btnLinkGoogle.style.display = 'flex';
-      googleStatus.textContent = t.googleUnlinked || 'Sačuvajte rezultat trajno';
+      googleStatus.textContent = t.googleUnlinked || 'Povežite Google nalog da trajno sačuvate nadimak i rezultate!';
       googleStatus.style.color = 'var(--dim)';
     }
   }
@@ -880,7 +908,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   async function performGoogleSignIn() {
     const googleStatus = document.getElementById('googleStatus');
     const btnLinkGoogle = document.getElementById('btnLinkGoogle');
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     if (btnLinkGoogle) {
       btnLinkGoogle.disabled = true;
       btnLinkGoogle.style.opacity = '0.6';
@@ -948,7 +976,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           throw nativeErr;
         }
       }
-
+      
       // 2. Web browser (Popup auth)
       if (fb_auth) {
         const provider = new firebase.auth.GoogleAuthProvider();
@@ -1000,7 +1028,15 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   const btnLinkGoogleBtn = document.getElementById('btnLinkGoogle');
   if (btnLinkGoogleBtn) {
-    btnLinkGoogleBtn.addEventListener('click', performGoogleSignIn);
+    const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    if (isNative) {
+      const uSection = document.getElementById('usernameSectionContainer');
+      if (uSection) uSection.style.display = 'none';
+      const welcomeDesc = document.getElementById('usernameWelcomeDesc');
+      if (welcomeDesc) welcomeDesc.style.display = 'none';
+    } else {
+      btnLinkGoogleBtn.addEventListener('click', performGoogleSignIn);
+    }
   }
 
   async function handleGoogleSignInSuccess(activeUser, nativeGoogleUser) {
@@ -1013,7 +1049,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const email = activeUser.email || (nativeGoogleUser && nativeGoogleUser.email) || '';
     if (email) localStorage.setItem('blocksrocks_googleEmail', email);
 
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
 
     // Check if this Google account already has a registered profile in Firestore
     if (fb_db) {
@@ -1077,15 +1113,17 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     return GameCore.validateUsernameFormat(name);
   }
 
-  async function checkAvailability(rawName) {
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    const availEl = document.getElementById('usernameAvailability');
+  async function checkAvailability(rawName, availEl = null, saveBtnEl = null, inputEl = null) {
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
+    availEl = availEl || document.getElementById('usernameAvailability');
+    saveBtnEl = saveBtnEl || usernameSaveBtn;
+    inputEl = inputEl || usernameInput;
     const clean = (rawName || '').trim();
     const format = validateUsernameFormat(clean);
 
     if (!format.valid) {
       isUsernameAvailable = false;
-      usernameSaveBtn.disabled = true;
+      if (saveBtnEl) saveBtnEl.disabled = true;
       if (availEl) {
         availEl.className = 'uavail invalid';
         if (format.reason === 'chars') {
@@ -1100,7 +1138,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     // If matches user's current active name
     if (username && clean.toLowerCase() === username.toLowerCase()) {
       isUsernameAvailable = true;
-      usernameSaveBtn.disabled = false;
+      if (saveBtnEl) saveBtnEl.disabled = false;
       if (availEl) {
         availEl.className = 'uavail available';
         availEl.textContent = t.statusCurrent || '✅ Vaše trenutno ime';
@@ -1111,7 +1149,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     if (!fb_db || !firebaseReady) {
       // Offline fallback
       isUsernameAvailable = true;
-      usernameSaveBtn.disabled = false;
+      if (saveBtnEl) saveBtnEl.disabled = false;
       if (availEl) {
         availEl.className = 'uavail available';
         availEl.textContent = t.statusAvailable || '✅ Nadimak je slobodan';
@@ -1121,7 +1159,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
     const lower = clean.toLowerCase();
     isCheckingAvailability = true;
-    usernameSaveBtn.disabled = true;
+    if (saveBtnEl) saveBtnEl.disabled = true;
     if (availEl) {
       availEl.className = 'uavail checking';
       availEl.textContent = t.statusChecking || '⏳ Proveravam...';
@@ -1136,20 +1174,20 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       const docSnap = await docRef.get();
 
       // Ensure input hasn't changed while async call was pending
-      if (usernameInput.value.trim().toLowerCase() !== lower) return;
+      if (inputEl && inputEl.value.trim().toLowerCase() !== lower) return;
 
       if (docSnap.exists) {
         const data = docSnap.data();
         if (data && data.uid === fb_userId) {
           isUsernameAvailable = true;
-          usernameSaveBtn.disabled = false;
+          if (saveBtnEl) saveBtnEl.disabled = false;
           if (availEl) {
             availEl.className = 'uavail available';
             availEl.textContent = t.statusAvailable || '✅ Nadimak je slobodan';
           }
         } else {
           isUsernameAvailable = false;
-          usernameSaveBtn.disabled = true;
+          if (saveBtnEl) saveBtnEl.disabled = true;
           if (availEl) {
             availEl.className = 'uavail taken';
             availEl.textContent = t.statusTaken || '❌ Nadimak je već zauzet';
@@ -1157,7 +1195,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         }
       } else {
         isUsernameAvailable = true;
-        usernameSaveBtn.disabled = false;
+        if (saveBtnEl) saveBtnEl.disabled = false;
         if (availEl) {
           availEl.className = 'uavail available';
           availEl.textContent = t.statusAvailable || '✅ Nadimak je slobodan';
@@ -1166,7 +1204,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     } catch (err) {
       console.warn('[B&R] Availability check notice:', err);
       isUsernameAvailable = true;
-      usernameSaveBtn.disabled = false;
+      if (saveBtnEl) saveBtnEl.disabled = false;
       if (availEl) {
         availEl.className = 'uavail available';
         availEl.textContent = t.statusAvailable || '✅ Nadimak je slobodan';
@@ -1182,7 +1220,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const format = validateUsernameFormat(cleanName);
     if (!format.valid) return false;
 
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     const availEl = document.getElementById('usernameAvailability');
 
     usernameSaveBtn.disabled = true;
@@ -1322,7 +1360,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
     usernameModal.classList.toggle('is-onboarding', isOnboarding);
 
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     const settingsHeading = document.getElementById('settingsHeading');
     const welcomeDesc = document.getElementById('usernameWelcomeDesc');
     const availEl = document.getElementById('usernameAvailability');
@@ -1443,20 +1481,91 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       }
     }
 
-    // 4. Zero Friction: If still no nickname, generate a default guest name so user plays INSTANTLY!
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-    const prefix = t.guestPrefix || 'Igrač';
-    const guestNum = Math.floor(1000 + Math.random() * 9000);
-    const guestName = `${prefix}_${guestNum}`;
-    username = guestName;
-    localStorage.setItem('blocksrocks_username', guestName);
-    if (usernameInput) usernameInput.value = guestName;
-    console.log('[B&R] Assigned seamless guest nickname:', guestName);
-
-    // Register guest nickname in background without blocking
-    if (fb_db && firebaseReady) {
-      registerAndSaveUsername(guestName).catch(e => console.warn('[B&R] Guest auto-register notice:', e));
+    // 4. Ako smo na Androidu (Native), nema modala, uzima se Play Games ime ili generiše
+    if (isNative) {
+      const pgsName = localStorage.getItem('blocksrocks_pgsDisplayName');
+      let finalName = '';
+      if (pgsName && pgsName.trim().length >= 3) {
+        finalName = pgsName.replace(/[^a-zA-Z0-9_\-\u00C0-\u024F\u0400-\u04FF ]/g, '').substring(0, 12).trim();
+      }
+      if (finalName.length < 3) {
+        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
+        const prefix = t.guestPrefix || 'Igrač';
+        const guestNum = Math.floor(1000 + Math.random() * 9000);
+        finalName = `${prefix}_${guestNum}`;
+      }
+      
+      console.log('[B&R] Auto-assigning native username:', finalName);
+      
+      return new Promise((resolve) => {
+        registerAndSaveUsername(finalName).then(() => {
+          if (typeof fetchMyTop3 === 'function') fetchMyTop3();
+          if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
+          resolve(true);
+        }).catch(err => {
+          console.warn('[B&R] Native auto-register failed:', err);
+          resolve(false);
+        });
+      });
     }
+
+    // 5. Polu-Friction: Show First-Run Modal instead of silent assignment (samo za Web)
+    return new Promise((resolve) => {
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
+      const prefix = t.guestPrefix || 'Igrač';
+      const guestNum = Math.floor(1000 + Math.random() * 9000);
+      const guestName = `${prefix}_${guestNum}`;
+      
+      const modal = document.getElementById('firstRunModal');
+      const input = document.getElementById('firstRunNickname');
+      const btn = document.getElementById('firstRunStartBtn');
+      const availEl = document.getElementById('firstRunAvailability');
+      
+      if(modal && input && btn){
+        input.value = guestName;
+        modal.style.display = 'flex';
+        
+        // Timeout to ensure display:flex is rendered before focusing
+        setTimeout(() => input.focus(), 50);
+        
+        let checkAvailabilityTimeout = null;
+        input.addEventListener('input', () => {
+          const raw = input.value;
+          const len = raw.trim().length;
+          input.classList.toggle('invalid', len > 0 && (len < 3 || len > 12));
+          
+          clearTimeout(checkAvailabilityTimeout);
+          checkAvailabilityTimeout = setTimeout(() => {
+            checkAvailability(raw, availEl, btn, input);
+          }, 500);
+        });
+
+        // Trigger initial check for generated name
+        checkAvailability(guestName, availEl, btn, input);
+        
+        btn.onclick = () => {
+          const raw = input.value.trim();
+          const finalName = raw.length >= 3 ? raw : guestName;
+          
+          username = finalName;
+          localStorage.setItem('blocksrocks_username', finalName);
+          if (usernameInput) usernameInput.value = finalName;
+          console.log('[B&R] Assigned first-run nickname:', finalName);
+          
+          if (fb_db && firebaseReady) {
+            registerAndSaveUsername(finalName).catch(e => console.warn('[B&R] Auto-register notice:', e));
+          }
+          
+          modal.style.display = 'none';
+          resolve();
+        };
+      } else {
+        username = guestName;
+        localStorage.setItem('blocksrocks_username', guestName);
+        if (usernameInput) usernameInput.value = guestName;
+        resolve();
+      }
+    });
   }
 
   // Username Input Listeners
@@ -1769,6 +1878,18 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   const ghostEl = document.getElementById('dragghost');
   const overlayEl = document.getElementById('overlay');
 
+  // Object Pool za Ghost (fiksna struktura 5x5)
+  const ghostCells = [];
+  if (ghostEl) {
+    ghostEl.innerHTML = '';
+    for(let i=0; i<25; i++){
+      const cell = document.createElement('div');
+      cell.style.display = 'none';
+      ghostEl.appendChild(cell);
+      ghostCells.push(cell);
+    }
+  }
+
   const btnHammer = document.getElementById('btnHammer');
   const btnReroll = document.getElementById('btnReroll');
   const puHammerCount = document.getElementById('puHammerCount');
@@ -1783,7 +1904,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   let bestAtGameStart = best;
 
   /* ═══ MODULE WIRING (ES moduli + dependency injection) ═══ */
-  initAudio({ getT: () => TRANSLATIONS[currentLang] || TRANSLATIONS.sr });
+  initAudio({ getT: () => TRANSLATIONS[currentLang] || TRANSLATIONS.en });
   initEffects({ CONFIG, SIZE, boardEl, scoreEl,
                 getGrid: () => grid,
                 getParticleTrailEnabled: () => particleTrailEnabled,
@@ -1815,7 +1936,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     }
     if (comboPill) {
       comboPill.style.display = (comboStreak > 1) ? 'flex' : 'none';
-      if (comboPillText) comboPillText.textContent = (TRANSLATIONS[currentLang] || TRANSLATIONS.sr).msgCombo + comboStreak;
+      if (comboPillText) comboPillText.textContent = (TRANSLATIONS[currentLang] || TRANSLATIONS.en).msgCombo + comboStreak;
     }
   }
 
@@ -1824,7 +1945,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   function grantPowerupRewards(prevScore, newScore, msgDelay){
     const rewards = GameCore.calculatePowerupRewards(prevScore, newScore);
     if(rewards.hammersEarned <= 0 && rewards.rerollsEarned <= 0) return;
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     const delay = msgDelay || 0;
 
     const maxR = GameCore.MAX_REROLLS || 2;
@@ -1851,7 +1972,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   if (btnHammer) {
     btnHammer.addEventListener('click', ()=>{
       if (gameOver || paused || lineClearInProgress) return;
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
       if (isHammerActive) {
         setHammerActive(false);
         showMsg((t.tips && t.tips[0]) || t.msgDefault, 1500);
@@ -1871,7 +1992,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   if (btnReroll) {
     btnReroll.addEventListener('click', ()=>{
       if (gameOver || paused || lineClearInProgress) return;
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
       if (rerollsCount <= 0) {
         showMsg(t.puNoRerolls || 'Nemate više zamena!', 2000);
         haptic('warning');
@@ -1998,7 +2119,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const dur = duration || CONFIG.MSG_DURATION_TIP;
     msgTimer = setTimeout(()=>{
       msgEl.classList.remove('msg-highlight');
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
       const tipsList = (t && t.tips) || TIPS;
       msgEl.textContent = tipsList[Math.floor(Math.random()*tipsList.length)];
     }, dur);
@@ -2007,7 +2128,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   /* ═══════════════════════════════════════════════
    *  GAME STATE PERSISTENCE
    * ═══════════════════════════════════════════════ */
-  function saveGameState(){
+  let saveGameTimeout = null;
+  function saveGameStateSync(){
     if(gameOver) { localStorage.removeItem('blocksrocks_gameState'); return; }
     try {
       // Pulse-bonus stanje se čuva da kocka ne bi bila "zamrznuta" posle re-load-a
@@ -2029,6 +2151,16 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         localStorage.removeItem('blocksrocks_gameState');
       }
     }
+  }
+
+  function saveGameState(){
+    if (document.hidden) {
+      if (saveGameTimeout) clearTimeout(saveGameTimeout);
+      saveGameStateSync();
+      return;
+    }
+    if (saveGameTimeout) clearTimeout(saveGameTimeout);
+    saveGameTimeout = setTimeout(saveGameStateSync, 500);
   }
   function loadGameState(){
     try {
@@ -2154,9 +2286,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         frostHazardState.c = savedFrost.c;
         frostHazardState.timer = (typeof savedFrost.timer === 'number' && savedFrost.timer > 0)
           ? savedFrost.timer
-          : (grid[savedFrost.r][savedFrost.c].frostTimer || (GameCore.FROST_HAZARD_DURATION_SEC || 15));
+          : (grid[savedFrost.r][savedFrost.c].frostTimer || (GameCore.FROST_HAZARD_MOVES || 5));
         grid[savedFrost.r][savedFrost.c].frostTimer = frostHazardState.timer;
-        startFrostCountdownInterval();
       }
 
       updatePowerupUI();
@@ -2168,7 +2299,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       render();
       overlayEl.style.display = 'none';
       document.getElementById('newbestLabel').style.display = 'none';
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
       msgEl.textContent = (t.tips && t.tips[0]) || t.msgDefault;
 
       if(!saved){
@@ -2227,7 +2358,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           sfxRockCrack();
           triggerScreenShake('light');
         }, 500);
-        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
         const msgTpl = t.msgFibonacciRockSpawn || '🪨 STENA NA TABLI! (%s PTS)';
         showMsg(msgTpl.replace('%s', threshold.toLocaleString()), 2500);
         render();
@@ -2243,44 +2374,34 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     intervalId: null
   };
 
-  function startFrostCountdownInterval(){
-    if(frostHazardState.intervalId){
-      clearInterval(frostHazardState.intervalId);
-      frostHazardState.intervalId = null;
+  function tickFrostHazardOnMove(){
+    if(paused || gameOver || lineClearInProgress) return;
+    if(frostHazardState.r === -1 || !grid || !grid[frostHazardState.r] || !grid[frostHazardState.r][frostHazardState.c]) {
+      clearFrostHazard();
+      return;
     }
-    frostHazardState.intervalId = setInterval(() => {
-      if(paused || gameOver) return;
-      if(frostHazardState.r === -1 || !grid || !grid[frostHazardState.r] || !grid[frostHazardState.r][frostHazardState.c]) {
-        clearFrostHazard();
-        return;
-      }
-      const cellData = grid[frostHazardState.r][frostHazardState.c];
-      if(!cellData || !cellData.isIceHazard){
-        clearFrostHazard();
-        return;
-      }
+    const cellData = grid[frostHazardState.r][frostHazardState.c];
+    if(!cellData || !cellData.isIceHazard){
+      clearFrostHazard();
+      return;
+    }
 
-      frostHazardState.timer = Math.max(0, (cellData.frostTimer != null ? cellData.frostTimer : frostHazardState.timer) - 1);
-      cellData.frostTimer = frostHazardState.timer;
+    frostHazardState.timer = Math.max(0, (cellData.frostTimer != null ? cellData.frostTimer : frostHazardState.timer) - 1);
+    cellData.frostTimer = frostHazardState.timer;
 
-      if(frostHazardState.timer <= 3 && frostHazardState.timer > 0){
-        sfxIceCrack();
-        haptic('light');
-      }
+    if(frostHazardState.timer <= 1 && frostHazardState.timer > 0){
+      sfxIceCrack();
+      haptic('light');
+    }
 
-      if(frostHazardState.timer <= 0){
-        detonateFrostHazard(frostHazardState.r, frostHazardState.c);
-      } else {
-        render();
-      }
-    }, 1000);
+    if(frostHazardState.timer <= 0){
+      detonateFrostHazard(frostHazardState.r, frostHazardState.c);
+    } else {
+      render();
+    }
   }
 
   function clearFrostHazard(){
-    if(frostHazardState.intervalId){
-      clearInterval(frostHazardState.intervalId);
-      frostHazardState.intervalId = null;
-    }
     frostHazardState.r = -1;
     frostHazardState.c = -1;
     frostHazardState.timer = 0;
@@ -2303,7 +2424,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     showBoardActionAlert('FROST<br>FREEZE', 'frost');
     haptic('heavy');
 
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     if(frozenCells.length > 0){
       showMsg(t.msgFrostFreezeTriggered || '❄️ MRAZ! Kocke ukoso su zamrznute (+1 HP)!', 3500);
       frozenCells.forEach(pos => {
@@ -2323,7 +2444,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       lastFrostHazardMilestone = reached;
       const freeCell = GameCore.findRandomFreeCell(grid, SIZE);
       if(freeCell){
-        const duration = GameCore.FROST_HAZARD_DURATION_SEC || 15;
+        const duration = GameCore.FROST_HAZARD_MOVES || 5;
         grid[freeCell.r][freeCell.c] = {
           color: '#38bdf8',
           hp: 1,
@@ -2338,8 +2459,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         sfxIceCrack();
         triggerScreenShake('light');
         showBoardActionAlert('FROST CUBE<br>ACTIVE', 'frost');
-        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-        showMsg(t.msgFrostSpawn || '❄️ LEDENA KOCKA! Uništi je za 15s pre nego što zamrzne tablu!', 3500);
+        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
+        showMsg(t.msgFrostSpawn || '❄️ LEDENA KOCKA! Uništi je za 5 poteza pre nego što zamrzne tablu!', 3500);
         render();
 
         const idx = freeCell.r * SIZE + freeCell.c;
@@ -2348,8 +2469,6 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           el.classList.add('pop-in');
           setTimeout(() => el.classList.remove('pop-in'), 300);
         }
-
-        startFrostCountdownInterval();
       }
     }
   }
@@ -2489,7 +2608,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   function showStuckHintIfAny(){
     if(!isStuckWithPowerups() || stuckHintShown) return;
     stuckHintShown = true;
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     showMsg(t.msgStuckHint || '🧩 Komadi se ne uklapaju — iskoristi čekić ili zameru da nastaviš!', CONFIG.MSG_DURATION_TIP);
     haptic('light');
   }
@@ -2557,7 +2676,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     await clearLines();
 
     // 1. Odbrojavamo preostale bombe koje su postojale pre ovog poteza i NISU bile očišćene
-    tickBombsOnMove();
+    tickBombsOnMove(bombPos);
+    tickFrostHazardOnMove();
 
     // 2. Ako je na tablu u ovom potezu spuštena nova bomba i nije očišćena u istom potezu, pokrećemo njen tajmer
     if(bombPos && grid[bombPos.r] && grid[bombPos.r][bombPos.c] && grid[bombPos.r][bombPos.c].bomb) {
@@ -2565,7 +2685,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       showBoardActionAlert('BOMB PLACED', 'bomb');
     }
 
-    // 3. Sačuvaj konačno stanje table i tajmera nakon poteza
+    // 3. Osveži tablu i sačuvaj konačno stanje nakon poteza
+    render();
     saveGameState();
   }
 
@@ -2653,7 +2774,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     pulseBonusState.c = c;
     pulseBonusState.timer = cellData.pulseTimer;
 
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     const pts = GameCore.PULSE_BONUS_POINTS || 250;
     const msgSpawn = t.msgPulseBonusSpawn || ('✨ Zlatna kocka pulsira! Razbij je za +' + pts + '!');
     showMsg(String(msgSpawn).replace('%s', pts), 3000);
@@ -2703,9 +2824,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       score += pts;
       showScoreFloat(pts);
       sfxBonusGem();
-      triggerConfetti(25);
       haptic('success');
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
       const msgClaimed = t.msgPulseBonusClaimed || ('🌟 +' + pts + ' BONUS OSVOJEN!');
       showMsg(String(msgClaimed).replace('%s', pts), 2500);
       endPulseBonus(true);
@@ -2737,25 +2857,40 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     }
   }
 
-  function tickBombsOnMove(){
+  function tickBombsOnMove(newlyPlacedBombPos){
     if(paused || gameOver || lineClearInProgress) return;
-    if(bombTickers.size === 0) {
-      checkBombCriticalState();
-      return;
-    }
 
     const toExplode = [];
-    [...bombTickers.entries()].forEach(([key, pos])=>{
-      const d = (grid && grid[pos.r]) ? grid[pos.r][pos.c] : null;
-      if(!d || !d.bomb){ bombTickers.delete(key); return; }
-      if(d.timer > 1){
-        d.timer -= 1;
-        updateBombVisual(pos.r, pos.c);
-      } else {
-        bombTickers.delete(key);
-        toExplode.push(pos);
+    for(let r=0; r<SIZE; r++){
+      for(let c=0; c<SIZE; c++){
+        const d = (grid && grid[r]) ? grid[r][c] : null;
+        if(!d || !d.bomb) continue;
+        // Ako je bomba tek spuštena u ovom potezu, njen tajmer počinje da kuca od sledećeg poteza
+        if(newlyPlacedBombPos && newlyPlacedBombPos.r === r && newlyPlacedBombPos.c === c){
+          continue;
+        }
+        if(typeof d.timer !== 'number') {
+          d.timer = d.initialTimer || GameCore.getBombInitialTimer(score) || 3;
+        }
+        if(d.timer > 1){
+          d.timer -= 1;
+        } else {
+          toExplode.push({r, c});
+        }
       }
-    });
+    }
+
+    // Ažuriraj bombTickers mapu i vizuelni prikaz za sve preostale bombe
+    bombTickers.clear();
+    for(let r=0; r<SIZE; r++){
+      for(let c=0; c<SIZE; c++){
+        const d = (grid && grid[r]) ? grid[r][c] : null;
+        if(d && d.bomb && !toExplode.some(p => p.r === r && p.c === c)){
+          bombTickers.set(r+'_'+c, {r, c});
+          updateBombVisual(r, c);
+        }
+      }
+    }
 
     checkBombCriticalState();
 
@@ -2774,21 +2909,21 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   function updateBombVisual(r,c){
     const idx = r*SIZE+c;
-    const el = boardEl.children[idx];
+    const el = (cellElements && cellElements[idx]) || (boardEl && boardEl.children[idx]);
     if(!el) return;
     const d = (grid && grid[r]) ? grid[r][c] : null;
-    if(!d) return;
-    // Critical state on the last move
+    if(!d || !d.bomb) return;
     el.classList.toggle('critical', d.timer <= 1);
-    let label = el.querySelector('.bomb-label');
+    const meta = cellsMeta.get(el);
+    let label = (meta && meta.bombLabel) || el.querySelector('.bomb-label');
     if(!label){
       label = document.createElement('div');
       label.className = 'bomb-label';
       el.appendChild(label);
+      if(meta) meta.bombLabel = label;
     }
     label.textContent = d.timer;
     label.classList.toggle('critical-num', d.timer <= 1);
-    // Restart the countdown "pop" animation on every move
     label.classList.remove('pop');
     void label.offsetWidth;
     label.classList.add('pop');
@@ -2838,7 +2973,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       checkAndTriggerGameOver(CONFIG.GAME_OVER_DELAY_AFTER_BOMB);
     }, totalAnimTime);
 
-    const tBomb = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const tBomb = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     showMsg(tBomb.msgBombExplodedHazard || '💣 BOMBA JE EKSPLODIRALA! Nastao je kamen i ruševine!', 3500);
     track('bomb_explode_hazard', { spawnedRocks: totalSpawnedRocks });
   }
@@ -2888,7 +3023,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
                 spawnIceShatterParticles(pos.r, pos.c);
                 sfxIceBreak();
                 showBoardActionAlert('FROST<br>DEFUSED', 'defused');
-                const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+                const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
                 showMsg(t.msgIceDestroyed || '❄️ LED RAZBIJEN! +500', 2000);
               } else if(data.isFrozen){
                 spawnIceShatterParticles(pos.r, pos.c);
@@ -2957,11 +3092,10 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
               score += clearBonus;
               showScoreFloat(clearBonus);
               recordCareerStat('boardClears', 1);
-              triggerConfetti(55);
               sfxBonusGem();
 
               const maxH = GameCore.MAX_HAMMERS || 2;
-              const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+              const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
               if(hammersCount < maxH){
                 hammersCount = Math.min(maxH, hammersCount + 1);
               } else {
@@ -3025,11 +3159,20 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const removedCount = cellsArr.filter(c=>c.willRemove).length;
     const crackedCount = cellsArr.length - removedCount;
     const linesCleared = fullRows.length + fullCols.length;
-    comboStreak++;
+    const prevCombo = comboStreak;
+    comboStreak += linesCleared;
 
     // Track career statistics
     recordCareerStat('linesCleared', linesCleared);
     if(comboStreak > 1) recordCareerStat('maxCombo', comboStreak);
+    for (let c = Math.max(2, prevCombo + 1); c <= comboStreak; c++) {
+      if(c === 2) recordCareerStat('combo2xCount', 1);
+      if(c === 3) recordCareerStat('combo3xCount', 1);
+      if(c === 4) recordCareerStat('combo4xCount', 1);
+      if(c === 5) recordCareerStat('combo5xCount', 1);
+      if(c === 6) recordCareerStat('combo6xCount', 1);
+      if(c >= 7) recordCareerStat('masterCombos', 1);
+    }
     const defusedCount = cellsArr.filter(c => { const d = grid[c.r][c.c]; return d && d.bomb && c.willRemove; }).length;
     if(defusedCount > 0){
       recordCareerStat('bombsDefused', defusedCount);
@@ -3038,7 +3181,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       showScoreFloat(defuseBonus);
       showBoardActionAlert('BOMB DEFUSED', 'defused');
       sfxBonusGem();
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
       setTimeout(() => {
         showMsg((t.msgBombDefused || '🛡️ BOMBA DEAKTIVIRANA! +%s').replace('%s', defuseBonus), 2500);
       }, CONFIG.MSG_DURATION_CLEAR);
@@ -3072,12 +3215,11 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     playComboAudio(comboStreak, linesCleared);
     updatePowerupUI();
 
-    const tClear = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const tClear = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     if(comboStreak > 1) {
       boardEl.classList.add('board-combo');
       setTimeout(() => boardEl.classList.remove('board-combo'), 380);
       showMsg((tClear.msgComboStreak || '🔥 KOMBO NIZ x') + comboStreak + '! +' + bonus, CONFIG.MSG_DURATION_COMBO);
-      if(comboStreak >= 3) triggerConfetti(35);
     } else if(linesCleared > 1) {
       boardEl.classList.add('board-combo');
       setTimeout(() => boardEl.classList.remove('board-combo'), 380);
@@ -3089,35 +3231,13 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     // Power-up nagrade za skor (zamene na svakih 5k poena sa limitom)
     grantPowerupRewards(prevScoreBeforeLines, score, CONFIG.MSG_DURATION_CLEAR);
 
-    // Čekić se dobija posle 5x combo-a (na svakih 5 u nizu) sa limitom na 2
-    const comboHammer = (GameCore.calculateComboHammerReward)
-      ? GameCore.calculateComboHammerReward(comboStreak)
-      : ((comboStreak > 0 && comboStreak % 5 === 0) ? 1 : 0);
-    if(comboHammer > 0){
-      const maxH = GameCore.MAX_HAMMERS || 2;
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-      if(hammersCount < maxH){
-        hammersCount = Math.min(maxH, hammersCount + comboHammer);
-        updatePowerupUI();
-        setTimeout(() => {
-          showMsg(t.puRewardHammer || '🔨 Novi čekić osvojen! (+1)', 2200);
-        }, CONFIG.MSG_DURATION_COMBO);
-      } else {
-        const overflow = (GameCore.POWERUP_OVERFLOW_POINTS || 500) * comboHammer;
-        score += overflow;
-        showScoreFloat(overflow);
-        updatePowerupUI();
-        setTimeout(() => {
-          showMsg(t.puHammerCapped || '🔨 Čekići puni (max 2)! +500 PTS', 2200);
-        }, CONFIG.MSG_DURATION_COMBO);
-      }
-    }
+
   }
 
   function handleCellClick(r, c){
     if(!isHammerActive) return;
     if(!grid || !grid[r] || !grid[r][c]) return;
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     const cellData = grid[r][c];
     sfxHammer();
     triggerScreenShake('light');
@@ -3135,7 +3255,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       sfxIceBreak();
       showBoardActionAlert('FROST<br>DEFUSED', 'defused');
       grid[r][c] = null;
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
       showMsg(t.msgIceDestroyed || '❄️ LED RAZBIJEN! +500', 2000);
     } else {
       checkAndCollectPulseBonus(r, c);
@@ -3262,9 +3382,9 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         div.appendChild(label);
         meta.frostLabel = label;
       }
-      const val = (data.frostTimer != null ? data.frostTimer : 15) + 's';
+      const val = String(data.frostTimer != null ? data.frostTimer : 5);
       if(label.textContent !== val) label.textContent = val;
-      label.classList.toggle('critical-num', (data.frostTimer != null && data.frostTimer <= 3));
+      label.classList.toggle('critical-num', (data.frostTimer != null && data.frostTimer <= 1));
     } else {
       const label = meta.frostLabel;
       if(label){ label.remove(); meta.frostLabel = null; }
@@ -3279,7 +3399,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     let cls = 'cell filled';
     if(data.isIceHazard) {
       cls += ' ice-hazard';
-      if(data.frostTimer != null && data.frostTimer <= 3) cls += ' critical';
+      if(data.frostTimer != null && data.frostTimer <= 1) cls += ' critical';
       return cls;
     }
     if(data.isFrozen) {
@@ -3292,6 +3412,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     } else if(data.maxHp === 2){
       if(data.hp >= 2) cls += ' stone-full';
       else cls += ' stone-cracked';
+    } else if(data.isRock || (data.maxHp && data.maxHp > 1)){
+      cls += ' stone-cracked';
     }
     if(data.bomb){
       cls += ' bomb-cell';
@@ -3321,7 +3443,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
             div.className = cls;
           }
           if(data){
-            const target = (data.maxHp === 2) ? '' : (data.color || '#5eead4');
+            const target = (data.isRock || (data.maxHp && data.maxHp >= 2)) ? '' : (data.color || '#5eead4');
             const meta = cellsMeta.get(div);
             if (meta && meta.lastColor !== target) {
               meta.lastColor = target;
@@ -3349,7 +3471,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
           hasCelebratedWorldRecord = true;
           const globalBox = document.getElementById('bottomGlobalCard');
           if(globalBox) globalBox.classList.add('record-breaking');
-          const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+          const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
           showMsg(t.worldRecordBroken || '🌍 NOVI SVETSKI REKORD! 🎉', CONFIG.MSG_DURATION_COMBO || 2500);
         }
       }
@@ -3398,7 +3520,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
         }
         slot.className = 'piece-slot' + (piece ? '' : ' empty');
         // A11y: opis komada za screen reader-e
-        const tA11y = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+        const tA11y = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
         if (piece && piece.shape) slot.setAttribute('aria-label', (tA11y.trayPiece || 'Komad') + ' ' + (idx + 1) + ' (' + piece.shape.length + ')');
         else slot.removeAttribute('aria-label');
 
@@ -3441,7 +3563,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
             lockBadge.onpointerdown = (e) => {
               e.preventDefault();
               e.stopPropagation();
-              const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+              const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
               showMsg(t.msgLockedPiece || '🔒 Ovaj komad je zaključan i ne može se rotirati!', 2000);
               slot.classList.add('shake-piece');
               setTimeout(() => slot.classList.remove('shake-piece'), 300);
@@ -3542,7 +3664,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       const idx = Number(slot.dataset.idx);
       const piece = slot._piece;
       if (!piece || !tray[idx]) return;
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
 
       // Rotacija u fioci, bez podizanja komada
       if ((e.key === 'r' || e.key === 'R') && !dragging) {
@@ -3587,21 +3709,34 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const {cellW} = cachedBoardGeometry || getCellGeometry();
     const occMap = new Map();
     piece.shape.forEach(([sr,sc], i)=> occMap.set(sr+','+sc, i));
-    ghostEl.innerHTML = '';
+    
     ghostEl.style.display = 'grid';
     ghostEl.style.gridTemplateColumns = `repeat(${cols}, ${cellW}px)`;
     ghostEl.style.gridTemplateRows = `repeat(${rows}, ${cellW}px)`;
+    
+    let cellIdx = 0;
     for(let r=0;r<rows;r++){
       for(let c=0;c<cols;c++){
         const shapeIdx = occMap.get(r+','+c);
         const on = shapeIdx !== undefined;
         const isStone = on && shapeIdx === piece.stoneIndex;
         const isBomb = on && shapeIdx === piece.bombIndex;
-        const cell = document.createElement('div');
+        
+        const cell = ghostCells[cellIdx];
+        cell.style.display = 'block';
         cell.className = 'ghost-cell ' + (on?'':'off') + (isStone?' stone-full':'') + (isBomb?' bomb':'');
-        if(on && !isStone && !isBomb) cell.style.background = piece.color || '#5eead4';
-        ghostEl.appendChild(cell);
+        if(on && !isStone && !isBomb) {
+          cell.style.background = piece.color || '#5eead4';
+        } else {
+          cell.style.background = '';
+        }
+        cellIdx++;
       }
+    }
+    // Hide unused cells
+    while(cellIdx < 25) {
+      ghostCells[cellIdx].style.display = 'none';
+      cellIdx++;
     }
   }
 
@@ -3858,19 +3993,32 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   function renderCareerStats(){
     loadCareerStats();
     const gEl = document.getElementById('statGames');
-    const lEl = document.getElementById('statLines');
-    const cEl = document.getElementById('statMaxCombo');
-    const bEl = document.getElementById('statBombs');
-    const rEl = document.getElementById('statRocks');
     const aEl = document.getElementById('statAvgScore');
+    const mcEl = document.getElementById('statMasterCombos');
+    const c2 = document.getElementById('statCombo2x');
+    const c3 = document.getElementById('statCombo3x');
+    const c4 = document.getElementById('statCombo4x');
+    const c5 = document.getElementById('statCombo5x');
+    const c6 = document.getElementById('statCombo6x');
 
     if(gEl) gEl.textContent = (careerStats.gamesPlayed || 0).toLocaleString();
-    if(lEl) lEl.textContent = (careerStats.linesCleared || 0).toLocaleString();
-    if(cEl) cEl.textContent = 'x' + (careerStats.maxCombo || 1);
-    if(bEl) bEl.textContent = (careerStats.bombsDefused || 0).toLocaleString();
-    if(rEl) rEl.textContent = (careerStats.rocksCrushed || 0).toLocaleString();
     const avg = careerStats.gamesPlayed > 0 ? Math.round((careerStats.totalScore || 0) / careerStats.gamesPlayed) : 0;
     if(aEl) aEl.textContent = avg.toLocaleString();
+
+    const avgTimeEl = document.getElementById('statAvgTime');
+    const totalSec = careerStats.totalPlayTimeSec || 0;
+    const avgSec = careerStats.gamesPlayed > 0 ? Math.floor(totalSec / careerStats.gamesPlayed) : 0;
+    const m = Math.floor(avgSec / 60);
+    const s = avgSec % 60;
+    if(avgTimeEl) avgTimeEl.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+
+    if(mcEl) mcEl.textContent = (careerStats.masterCombos || 0).toLocaleString();
+    
+    if(c2) c2.textContent = (careerStats.combo2xCount || 0).toLocaleString();
+    if(c3) c3.textContent = (careerStats.combo3xCount || 0).toLocaleString();
+    if(c4) c4.textContent = (careerStats.combo4xCount || 0).toLocaleString();
+    if(c5) c5.textContent = (careerStats.combo5xCount || 0).toLocaleString();
+    if(c6) c6.textContent = (careerStats.combo6xCount || 0).toLocaleString();
 
     const bgEl = document.getElementById('badgesGrid');
     if(bgEl) renderBadgesGrid(bgEl, careerStats, score, best, currentLang);
@@ -3904,7 +4052,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   function renderMatchHistory(){
     const listEl = document.getElementById('matchHistoryList');
     if(!listEl) return;
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     let history = [];
     try {
       history = JSON.parse(localStorage.getItem('blocksrocks_matchHistory') || '[]');
@@ -3952,7 +4100,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   let shareBtnTimer = null;
   function showShareFeedback(mode) {
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     const btnShare = document.getElementById('btnShareScore');
 
     if (mode === 'copied') {
@@ -3994,7 +4142,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       clearTimeout(shareBtnTimer);
       shareBtnTimer = setTimeout(() => {
         btnShare.classList.remove('copied', 'failed');
-        const curT = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+        const curT = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
         btnShare.textContent = curT.btnShareScore || '📤 PODELI REZULTAT';
       }, 2500);
     }
@@ -4044,7 +4192,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   let lastGameOverCombo = 0;
 
   async function shareScore(){
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     const shareTitle = "Blocks and Rocks";
     const currentScore = (typeof lastGameOverScore === 'number' && lastGameOverScore > 0)
       ? lastGameOverScore
@@ -4171,7 +4319,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     const gob = document.getElementById('gameOverBadge');
     if (gob) {
       if (highestBadge) {
-        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
+        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
         const badgeTitle = t[`badge_${highestBadge.id}_title`] || highestBadge.id;
         gob.innerHTML = `${highestBadge.icon} <span>${escapeHtml(badgeTitle)}</span>`;
         gob.style.display = 'inline-flex';
@@ -4185,6 +4333,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     clearGameState();
     const durationSec = Math.max(1, Math.round((Date.now() - (gameStartTime || Date.now())) / 1000));
     track('game_over', { score: finalScore, is_new_best: isNewBest, duration_sec: durationSec });
+    recordCareerStat('totalPlayTimeSec', durationSec);
 
     // Submit to Firebase immediately if username exists & finalScore > 0
     if(username && finalScore > 0){
@@ -4246,6 +4395,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   // Auto-pause and cancel drag when the app goes to the background
   document.addEventListener('visibilitychange', ()=>{
+    document.body.classList.toggle('app-hidden', document.hidden);
     if(document.hidden){
       cancelDrag();
       if(!gameOver && !paused) setPaused(true);

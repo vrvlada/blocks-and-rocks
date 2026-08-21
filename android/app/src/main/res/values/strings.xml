@@ -5,4 +5,6 @@
     <string name="package_name">com.blocksrocks.game</string>
     <string name="custom_url_scheme">com.blocksrocks.game</string>
     <string name="server_client_id">556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com</string>
+    <!-- ZAMENITI SA STVARNIM PLAY GAMES APP ID-jem (brojevi na vrhu Play Console) -->
+    <string name="play_games_app_id">556570853814</string>
 </resources>

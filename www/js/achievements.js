@@ -9,10 +9,11 @@ import { escapeHtml } from './utils.js';
 
 const STORAGE_KEY = 'blocksrocks_badges';
 
-let unlockedBadges = {};
+let unlockedBadges = null;
 
-/** Učitava otključane bedževe iz localStorage */
-export function loadBadges() {
+/** Učitava otključane bedževe iz localStorage (keširano u memoriji) */
+export function loadBadges(force = false) {
+  if (unlockedBadges !== null && !force) return unlockedBadges;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     unlockedBadges = raw ? JSON.parse(raw) : {};
@@ -21,6 +22,7 @@ export function loadBadges() {
   }
   return unlockedBadges;
 }
+loadBadges();
 
 /** Čuva otključane bedževe u localStorage */
 export function saveBadges() {
@@ -82,7 +84,6 @@ export function checkAndUnlockBadges(stats, currentScore, personalBest, currentL
       setTimeout(() => {
         showBadgeUnlockToast(badge, currentLang);
         sfxBadgeUnlock();
-        triggerConfetti(45);
       }, (idx + 1) * 1200);
     });
     saveBadges();
@@ -123,8 +124,31 @@ export function renderBadgesGrid(containerEl, stats, score, pb, currentLang = 's
   const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
   const badges = window.GameCore.BADGES;
   
+  const destroyerBadges = badges.filter(b => b.id.startsWith('destroyer_'));
+  const otherBadges = badges.filter(b => !b.id.startsWith('destroyer_'));
+  
   let html = '';
-  badges.forEach(badge => {
+  
+  // 1. Render Destroyer Grid
+  if (destroyerBadges.length > 0) {
+    html += '<div class="destroyer-badges-grid">';
+    destroyerBadges.forEach(badge => {
+      const isUnlocked = !!unlockedBadges[badge.id];
+      const label = badge.id.replace('destroyer_', '');
+      const activeClass = isUnlocked ? 'active ' + (badge.tier || 'bronze') : '';
+      const title = t[`badge_${badge.id}_title`] || badge.id;
+      html += `
+        <div class="destroyer-badge ${activeClass}" title="${escapeHtml(title)}">
+          <div class="d-icon">${badge.icon}</div>
+          <div class="d-label">${label.toUpperCase()}</div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+  
+  // 2. Render Other Badges
+  otherBadges.forEach(badge => {
     const isUnlocked = !!unlockedBadges[badge.id];
     const progress = badge.getProgress ? badge.getProgress(stats, score, pb) : { current: 0, target: 1, pct: 0 };
     const title = t[`badge_${badge.id}_title`] || badge.id;

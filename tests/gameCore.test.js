@@ -237,17 +237,8 @@ test('calculateComboScore scales line score with combo streak multiplier', () =>
 
 test('calculatePowerupRewards triggers reroll rewards on 5000 score thresholds', () => {
   assert.deepEqual(G.calculatePowerupRewards(500, 4850), { hammersEarned: 0, rerollsEarned: 0 });
-  assert.deepEqual(G.calculatePowerupRewards(4950, 5150), { hammersEarned: 0, rerollsEarned: 1 });
-  assert.deepEqual(G.calculatePowerupRewards(4900, 10100), { hammersEarned: 0, rerollsEarned: 2 });
-});
-
-test('calculateComboHammerReward grants hammer on 5x combo streak multiples', () => {
-  assert.equal(G.calculateComboHammerReward(0), 0);
-  assert.equal(G.calculateComboHammerReward(1), 0);
-  assert.equal(G.calculateComboHammerReward(4), 0);
-  assert.equal(G.calculateComboHammerReward(5), 1);
-  assert.equal(G.calculateComboHammerReward(6), 0);
-  assert.equal(G.calculateComboHammerReward(10), 1);
+  assert.deepEqual(G.calculatePowerupRewards(4950, 5150), { hammersEarned: 1, rerollsEarned: 1 });
+  assert.deepEqual(G.calculatePowerupRewards(4900, 10100), { hammersEarned: 2, rerollsEarned: 2 });
 });
 
 test('rotateShapeCW/CCW map asymmetric shape cells to expected coordinates (order preserved)', () => {
@@ -274,21 +265,17 @@ test('calculateComboScore calculates accurate bonus for 1, 2, 3, and 4+ lines', 
 test('calculatePowerupRewards boundary: threshold crossed by placement points counts exactly once', () => {
   // Regresija (app.js): poeni od golog postavljanja komada su ranije "trošili" prag
   // bez dodele nagrade — sada se grantPowerupRewards poziva posle SVAKE promene skora.
-  assert.deepEqual(G.calculatePowerupRewards(4999, 5002), { hammersEarned: 0, rerollsEarned: 1 });
+  assert.deepEqual(G.calculatePowerupRewards(4999, 5002), { hammersEarned: 1, rerollsEarned: 1 });
   assert.deepEqual(G.calculatePowerupRewards(5002, 5150), { hammersEarned: 0, rerollsEarned: 0 });
 });
 
 test('BADGES definition includes Destroyer series (10k-100k) and thematic badges', () => {
   assert.ok(Array.isArray(G.BADGES));
-  assert.equal(G.BADGES.length, 14); // 10 destroyer + 4 thematic
+  assert.equal(G.BADGES.length, 10); // 10 destroyer
   const ids = G.BADGES.map(b => b.id);
   for (let k = 10; k <= 100; k += 10) {
     assert.ok(ids.includes(`destroyer_${k}k`), `includes destroyer_${k}k`);
   }
-  assert.ok(ids.includes('rock_crusher'));
-  assert.ok(ids.includes('bomb_defuser'));
-  assert.ok(ids.includes('combo_master'));
-  assert.ok(ids.includes('line_master'));
 });
 
 test('checkNewBadges unlocks Destroyer badges based on score and personal best', () => {
@@ -321,16 +308,7 @@ test('checkNewBadges unlocks Destroyer badges based on score and personal best',
   assert.equal(un100k[0].id, 'destroyer_100k');
 });
 
-test('checkNewBadges unlocks thematic stats badges', () => {
-  const empty = {};
-  const stats = { rocksCrushed: 25, bombsDefused: 15, maxCombo: 5, linesCleared: 200 };
-  const unlocked = G.checkNewBadges(empty, stats, 500, 500);
-  const ids = unlocked.map(b => b.id);
-  assert.ok(ids.includes('rock_crusher'));
-  assert.ok(ids.includes('bomb_defuser'));
-  assert.ok(ids.includes('combo_master'));
-  assert.ok(ids.includes('line_master'));
-});
+// thematic stats badges removed from gameCore.js
 
 test('badge getProgress computes exact progress and capped percentage', () => {
   const b10k = G.BADGES.find(b => b.id === 'destroyer_10k');
@@ -338,9 +316,9 @@ test('badge getProgress computes exact progress and capped percentage', () => {
   assert.deepEqual(b10k.getProgress({}, 15000, 0), { current: 10000, target: 10000, pct: 100 });
 });
 
-test('PULSE_BONUS constants are defined with correct 100-150s intervals, 10s duration and 250 points', () => {
-  assert.equal(G.PULSE_BONUS_POINTS, 250);
-  assert.equal(G.PULSE_BONUS_DURATION_SEC, 10);
+test('PULSE_BONUS constants are defined with correct intervals, duration and points', () => {
+  assert.equal(G.PULSE_BONUS_POINTS, 500);
+  assert.equal(G.PULSE_BONUS_DURATION_SEC, 15);
   assert.equal(G.PULSE_BONUS_MIN_INTERVAL_MS, 100000); // 100s
   assert.equal(G.PULSE_BONUS_MAX_INTERVAL_MS, 150000); // 150s
 });
@@ -463,6 +441,8 @@ test('getFibonacciRockMilestone and spawn config calculate correct milestones', 
   assert.deepEqual(G.getFibonacciMilestoneSpawnConfig(6), [{ maxHp: 3 }, { maxHp: 2 }]);
   // 34k -> 2 granites
   assert.deepEqual(G.getFibonacciMilestoneSpawnConfig(7), [{ maxHp: 3 }, { maxHp: 3 }]);
+  // 55k -> 2 granites (capped)
+  assert.deepEqual(G.getFibonacciMilestoneSpawnConfig(8), [{ maxHp: 3 }, { maxHp: 3 }]);
 });
 
 test('getBombInterval scales countdown interval between bombs', () => {
@@ -500,8 +480,8 @@ test('getBombInitialTimer provides turn-based countdown for bombs', () => {
   assert.equal(G.getBombInitialTimer(25000, () => 0.1), 3);
   assert.equal(G.getBombInitialTimer(39999, () => 0.1), 3);
 
-  // >= 40k -> 30% chance for 2 turns, else 3
-  assert.equal(G.getBombInitialTimer(40000, () => 0.25), 2);
+  // >= 25k -> capped at 3 turns
+  assert.equal(G.getBombInitialTimer(40000, () => 0.25), 3);
   assert.equal(G.getBombInitialTimer(40000, () => 0.35), 3);
 });
 
@@ -538,9 +518,9 @@ test('applyBombExplosionHazard (Option A) creates rocks and rubble in 3x3 blast'
   // Bomb center becomes 2 HP rock
   assert.equal(grid[1][1].isRock, true);
   assert.equal(grid[1][1].hp, 2);
-  // Neighbouring block became 1 HP rock
+  // Neighbouring block became 2 HP rock
   assert.equal(grid[1][2].isRock, true);
-  assert.equal(grid[1][2].hp, 1);
+  assert.equal(grid[1][2].hp, 2);
 });
 
 test('getMilestoneHazardLevel detects reached milestone index', () => {
@@ -654,8 +634,8 @@ test('getIsPieceRotationLocked and pieceAnyPlacementOn with locked rotation', ()
   assert.equal(G.getIsPieceRotationLocked(0, () => 0.05), false);
   assert.equal(G.getIsPieceRotationLocked(19999, () => 0.05), false);
 
-  // >= 20.000: 25% chance of locked (rng < 0.25)
-  assert.equal(G.getIsPieceRotationLocked(20000, () => 0.10), true);
+  // Uvek vraća false, mehanika je ukinuta
+  assert.equal(G.getIsPieceRotationLocked(20000, () => 0.10), false);
   assert.equal(G.getIsPieceRotationLocked(20000, () => 0.35), false);
 
   // Grid full except vertical 1x2 hole at (0,0)-(1,0)
