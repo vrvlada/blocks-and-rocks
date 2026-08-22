@@ -7,7 +7,7 @@ const G = require('../www/gameCore.js');
 
 test('constants: SIZE=8, 35 shapes, 7 colors', () => {
   assert.equal(G.SIZE, 8);
-  assert.equal(G.SHAPES.length, 35);
+  assert.equal(G.SHAPES.length, 35, 'SHAPES length must be 35 — update this test if you add/remove shapes');
   assert.equal(G.COLORS.length, 7);
   assert.equal(G.MAX_HAMMERS, 2);
   assert.equal(G.MAX_REROLLS, 2);

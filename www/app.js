@@ -9,9 +9,20 @@ import { initAudio, haptic, setMuted, toggleMute, isMuted, getHapticMode, setHap
 import { initEffects, triggerScreenShake, triggerConfetti, showScoreFloat, showBigComboBonusCounter, showBoardActionAlert, spawnParticles,
          spawnCrackParticles, spawnShockwave, spawnSpark, spawnIceShatterParticles } from './js/effects.js';
 import { initLeaderboard, updateBottomRecords, fetchMyTop3, getCachedGlobalTopScore, MAX_ENTRIES_PER_USER } from './js/leaderboard.js';
-import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } from './js/achievements.js';
+import { initAchievements, checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } from './js/achievements.js';
+
+/* ── PHASE 2 MODULE IMPORTS ── */
+import { initUserAuth, updateGoogleLinkStatus, performGoogleSignIn, handleGoogleSignInSuccess,
+         showUsernameModal, saveUsername, savePersonalBest, initUserIdentity, showFirstRunModal,
+         checkAvailability, registerAndSaveUsername, bindUserAuthEvents } from './js/modules/username-auth.js';
+import { initScoresSync, submitScore, syncOfflineScores, migrateLegacyScore, queueOfflineScore, capUserEntries } from './js/modules/scores-sync.js';
+import { initStatsHistory, recordCareerStat, renderCareerStats, getCareerStats,
+         saveMatchToHistory, renderMatchHistory } from './js/modules/stats-history.js';
+import { initShareUI, showGameToast, showShareFeedback, copyScoreToClipboard,
+         shareScore } from './js/modules/share-ui.js';
 
 (function(){
+  const GameCore = window.GameCore;  // Eksplicitni global import (jedina referenca van gameCore.js)
   /* ═══════════════════════════════════════════════
    *  FIREBASE CONFIG — Zamenite sa vašim podacima
    * ═══════════════════════════════════════════════ */
@@ -379,42 +390,6 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     return code.toUpperCase();
   }
 
-  /* ═══════════════════════════════════════════════
-   *  USER PROFILE & IDENTITY STATE
-   * ═══════════════════════════════════════════════ */
-  // username / personalBest deklarisani na vrhu fajla (init catch ih referencira)
-  let isOnboarding = false;
-  let isUsernameAvailable = false;
-  let isCheckingAvailability = false;
-  let checkAvailabilityTimeout = null;
-  let usernameCallback = null;
-
-  const usernameModal = document.getElementById('username-modal');
-  const usernameInput = document.getElementById('usernameInput');
-  const usernameCount = document.getElementById('usernameCount');
-  const usernameSaveBtn = document.getElementById('usernameSaveBtn');
-  const usernameCloseBtn = document.getElementById('usernameCloseBtn');
-  const usernameAvailability = document.getElementById('usernameAvailability');
-  const usernameWelcomeDesc = document.getElementById('usernameWelcomeDesc');
-
-  function saveUsername(name){
-    username = name;
-    localStorage.setItem('blocksrocks_username', name);
-    track('username_set', { name: name });
-  }
-  // Throttle rang-liste: savePersonalBest se poziva iz render() pri SVAKOM povećanju
-  // rekorda tokom partije — ne šaljemo mrežni upit za svaki poen, već najviše
-  // jednom u 5 sekundi (kraj partije ionako forsira osvežavanje: updateBottomRecords(true)).
-  let pbWidgetThrottleTs = 0;
-  function savePersonalBest(val){
-    personalBest = val;
-    localStorage.setItem('blocksrocks_personalBest', val.toString());
-    const now = Date.now();
-    if(typeof updateBottomRecords === 'function' && (now - pbWidgetThrottleTs) > 5000){
-      pbWidgetThrottleTs = now;
-      updateBottomRecords(false);
-    }
-  }
 
   /* ═══════════════════════════════════════════════
    *  MULTILINGUAL i18n TRANSLATIONS (sr, en, de, es, fr, ru)
@@ -515,8 +490,10 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       bReroll.setAttribute('aria-label', titleReroll);
     }
 
-    const settingsH3 = document.getElementById('settingsHeading') || document.querySelector('#username-modal h3');
-    if (settingsH3) settingsH3.textContent = isOnboarding ? (t.onboardingTitle || '👋 DOBRODOŠLI!') : t.settingsTitle;
+    const uModal = document.getElementById('username-modal');
+    const isModalOnboarding = !!(uModal && uModal.classList.contains('is-onboarding'));
+    const settingsH3 = document.getElementById('settingsHeading') || (uModal ? uModal.querySelector('h3') : null);
+    if (settingsH3) settingsH3.textContent = isModalOnboarding ? (t.onboardingTitle || '👋 DOBRODOŠLI!') : t.settingsTitle;
 
     const uCloseBtn = document.getElementById('usernameCloseBtn');
     if (uCloseBtn) { uCloseBtn.title = t.closeModal || 'Zatvori'; uCloseBtn.setAttribute('aria-label', t.closeModal || 'Zatvori'); }
@@ -534,11 +511,12 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     if (welcomeDesc) welcomeDesc.textContent = t.onboardingDesc || 'Unesite jedinstveni nadimak za rang listu i profil.';
 
     setText('i18n_usernameLabel', t.usernameLabel);
-    if (usernameInput) {
-      usernameInput.placeholder = t.usernamePlaceholder || 'VašeIme';
-      usernameInput.setAttribute('aria-label', t.usernameLabel);
+    const uInput = document.getElementById('usernameInput');
+    if (uInput) {
+      uInput.placeholder = t.usernamePlaceholder || 'VašeIme';
+      uInput.setAttribute('aria-label', t.usernameLabel);
     }
-    setText('usernameSaveBtn', isOnboarding ? (t.onboardingBtn || 'ZAPOČNI IGRU') : t.usernameSaveBtn);
+    setText('usernameSaveBtn', isModalOnboarding ? (t.onboardingBtn || 'ZAPOČNI IGRU') : t.usernameSaveBtn);
     setText('btnLinkGoogleText', t.btnLinkGoogle);
     setText('i18n_langLabel', t.langLabel);
     setText('i18n_audioLabel', t.audioLabel);
@@ -883,957 +861,6 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     });
   }
 
-  /* ═══════════════════════════════════════════════
-   *  GOOGLE ACCOUNT LINKING & CLOUD SYNC
-   * ═══════════════════════════════════════════════ */
-  function updateGoogleLinkStatus() {
-    const btnLinkGoogle = document.getElementById('btnLinkGoogle');
-    const googleStatus = document.getElementById('googleStatus');
-    if (!btnLinkGoogle || !googleStatus) return;
-    const isLinked = localStorage.getItem('blocksrocks_googleLinked') === '1' || (fb_auth && fb_auth.currentUser && !fb_auth.currentUser.isAnonymous && fb_auth.currentUser.providerData.some(p => p.providerId === 'google.com'));
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-    if (isLinked) {
-      btnLinkGoogle.style.display = 'none';
-      const email = localStorage.getItem('blocksrocks_googleEmail') || '';
-      googleStatus.textContent = (t.googleLinked || '✅ Povezano') + (email ? ': ' + email : '');
-      if (email) googleStatus.title = email;
-      googleStatus.style.color = 'var(--accent)';
-    } else {
-      btnLinkGoogle.style.display = 'flex';
-      googleStatus.textContent = t.googleUnlinked || 'Povežite Google nalog da trajno sačuvate nadimak i rezultate!';
-      googleStatus.style.color = 'var(--dim)';
-    }
-  }
-
-  async function performGoogleSignIn() {
-    const googleStatus = document.getElementById('googleStatus');
-    const btnLinkGoogle = document.getElementById('btnLinkGoogle');
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-    if (btnLinkGoogle) {
-      btnLinkGoogle.disabled = true;
-      btnLinkGoogle.style.opacity = '0.6';
-    }
-    if (googleStatus) {
-      googleStatus.textContent = t.googleConnecting || 'Povezivanje...';
-      googleStatus.style.color = 'var(--dim)';
-    }
-
-    try {
-      const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-      const GoogleAuth = window.Capacitor && window.Capacitor.Plugins && (window.Capacitor.Plugins.GoogleAuth || window.Capacitor.Plugins.GoogleAuthPlugin);
-
-      // 1. Native Google Sign-In on Android
-      if (isNative && GoogleAuth) {
-        console.log('[B&R] Launching Native Android Google Sign-In...');
-        try {
-          await GoogleAuth.initialize({
-            clientId: '556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com',
-            scopes: ['profile', 'email'],
-            grantOfflineAccess: true
-          }).catch(() => {});
-
-          const googleUser = await GoogleAuth.signIn();
-          const idToken = (googleUser.authentication && googleUser.authentication.idToken) || googleUser.idToken;
-
-          if (idToken && fb_auth) {
-            const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
-            let authResult;
-            if (fb_auth.currentUser && fb_auth.currentUser.isAnonymous) {
-              try {
-                authResult = await fb_auth.currentUser.linkWithCredential(credential);
-              } catch (linkErr) {
-                if (linkErr.code === 'auth/credential-already-in-use' || linkErr.code === 'auth/email-already-in-use') {
-                  authResult = await fb_auth.signInWithCredential(credential);
-                } else {
-                  throw linkErr;
-                }
-              }
-            } else {
-              authResult = await fb_auth.signInWithCredential(credential);
-            }
-
-            const activeUser = authResult.user || fb_auth.currentUser;
-            await handleGoogleSignInSuccess(activeUser, googleUser);
-            updateGoogleLinkStatus();
-            return true;
-          } else if (googleUser && googleUser.email) {
-            console.log('[B&R] Google user signed in locally without idToken fallback:', googleUser.email);
-            localStorage.setItem('blocksrocks_googleLinked', '1');
-            localStorage.setItem('blocksrocks_googleEmail', googleUser.email);
-            if (googleUser.displayName && (!username || username.startsWith('Igrač') || username.startsWith('Player'))) {
-              await setUsername(googleUser.displayName.slice(0, 15));
-            }
-            updateGoogleLinkStatus();
-            return true;
-          }
-        } catch (nativeErr) {
-          if (nativeErr === 'cancelled' || (nativeErr && (nativeErr.message || '').toLowerCase().includes('cancel') || (nativeErr.message || '').includes('12501'))) {
-            console.log('[B&R] Google Sign-In cancelled by user');
-            if (googleStatus) updateGoogleLinkStatus();
-            return false;
-          }
-          console.warn('[B&R] Native Google Auth error:', nativeErr);
-          throw nativeErr;
-        }
-      }
-      
-      // 2. Web browser (Popup auth)
-      if (fb_auth) {
-        const provider = new firebase.auth.GoogleAuthProvider();
-        let activeUser = null;
-        if (fb_auth.currentUser) {
-          try {
-            const result = await fb_auth.currentUser.linkWithPopup(provider);
-            if (result && result.user) activeUser = result.user;
-          } catch (popupErr) {
-            if (popupErr.code === 'auth/credential-already-in-use' && popupErr.credential) {
-              const res = await fb_auth.signInWithCredential(popupErr.credential);
-              if (res && res.user) activeUser = res.user;
-            } else if (popupErr.code === 'auth/popup-closed-by-user') {
-              console.log('[B&R] Google popup closed by user');
-              if (googleStatus) updateGoogleLinkStatus();
-              return false;
-            } else {
-              throw popupErr;
-            }
-          }
-        } else {
-          const res = await fb_auth.signInWithPopup(provider);
-          if (res && res.user) activeUser = res.user;
-        }
-        if (activeUser) {
-          await handleGoogleSignInSuccess(activeUser);
-          updateGoogleLinkStatus();
-          return true;
-        }
-      }
-    } catch (err) {
-      console.error('[B&R] Google Sign-In error:', err);
-      if (googleStatus) {
-        if (err.code === 'auth/credential-already-in-use') {
-          googleStatus.textContent = t.googleAlreadyLinked || '⚠️ Google nalog je već povezan';
-        } else {
-          googleStatus.textContent = (t.googleError || '❌ Greška pri povezivanju');
-        }
-        googleStatus.style.color = 'var(--danger)';
-      }
-    } finally {
-      if (btnLinkGoogle) {
-        btnLinkGoogle.disabled = false;
-        btnLinkGoogle.style.opacity = '1';
-      }
-    }
-    return false;
-  }
-
-  const btnLinkGoogleBtn = document.getElementById('btnLinkGoogle');
-  if (btnLinkGoogleBtn) {
-    const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-    if (isNative) {
-      const uSection = document.getElementById('usernameSectionContainer');
-      if (uSection) uSection.style.display = 'none';
-      const welcomeDesc = document.getElementById('usernameWelcomeDesc');
-      if (welcomeDesc) welcomeDesc.style.display = 'none';
-    } else {
-      btnLinkGoogleBtn.addEventListener('click', performGoogleSignIn);
-    }
-  }
-
-  async function handleGoogleSignInSuccess(activeUser, nativeGoogleUser) {
-    if (!activeUser) return;
-    const gUid = activeUser.uid;
-    fb_userId = gUid;
-    firebaseReady = true;
-    localStorage.setItem('blocksrocks_userId', fb_userId);
-    localStorage.setItem('blocksrocks_googleLinked', '1');
-    const email = activeUser.email || (nativeGoogleUser && nativeGoogleUser.email) || '';
-    if (email) localStorage.setItem('blocksrocks_googleEmail', email);
-
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-
-    // Check if this Google account already has a registered profile in Firestore
-    if (fb_db) {
-      try {
-        const userDoc = await fb_db.collection('users').doc(gUid).get();
-        if (userDoc.exists && userDoc.data()) {
-          const udata = userDoc.data();
-          if (udata.username) {
-            const cloudName = udata.username;
-            saveUsername(cloudName);
-            username = cloudName;
-            if (usernameInput) usernameInput.value = cloudName;
-
-            const cloudBest = Number(udata.personalBest || udata.score || 0);
-            if (cloudBest > personalBest) {
-              savePersonalBest(cloudBest);
-              best = personalBest;
-              if (bestEl) bestEl.textContent = best;
-            }
-
-            if (isOnboarding) {
-              isOnboarding = false;
-              usernameModal.classList.remove('is-onboarding');
-              usernameModal.style.display = 'none';
-              setPaused(false);
-            }
-
-            showMsg((t.googleWelcomeBack || '✅ Dobrodošao nazad, ') + cloudName + '!', 3500);
-            haptic('success');
-            console.log('[B&R] Cloud profile restored for Google user:', cloudName, 'Best:', personalBest);
-            if (typeof fetchMyTop3 === 'function') fetchMyTop3();
-            if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
-            return;
-          }
-        }
-
-        // New profile for this Google Account
-        let finalUsername = username;
-        if (!finalUsername || finalUsername.length < 3) {
-          const rawDisp = (nativeGoogleUser && (nativeGoogleUser.displayName || nativeGoogleUser.name)) || activeUser.displayName || 'Igrač';
-          finalUsername = rawDisp.replace(/[^a-zA-Z0-9_\-\u00C0-\u024F\u0400-\u04FF]/g, '').substring(0, 12);
-          if (finalUsername.length < 3) finalUsername = 'Igrač_' + Math.floor(1000 + Math.random() * 9000);
-        }
-
-        await registerAndSaveUsername(finalUsername);
-        showMsg(t.googleLinkedSuccess || '✅ Google nalog uspešno povezan!', 3500);
-        haptic('success');
-        if (typeof fetchMyTop3 === 'function') fetchMyTop3();
-        if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
-      } catch (e) {
-        console.warn('[B&R] Error handling Google sign-in sync:', e);
-      }
-    }
-  }
-
-  /* ═══════════════════════════════════════════════
-   *  UNIQUE USERNAME CHECK & REGISTRATION
-   * ═══════════════════════════════════════════════ */
-  function validateUsernameFormat(name) {
-    // Jedina izvorna implementacija je GameCore.validateUsernameFormat (pokrivena testovima)
-    return GameCore.validateUsernameFormat(name);
-  }
-
-  async function checkAvailability(rawName, availEl = null, saveBtnEl = null, inputEl = null) {
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-    availEl = availEl || document.getElementById('usernameAvailability');
-    saveBtnEl = saveBtnEl || usernameSaveBtn;
-    inputEl = inputEl || usernameInput;
-    const clean = (rawName || '').trim();
-    const format = validateUsernameFormat(clean);
-
-    if (!format.valid) {
-      isUsernameAvailable = false;
-      if (saveBtnEl) saveBtnEl.disabled = true;
-      if (availEl) {
-        availEl.className = 'uavail invalid';
-        if (format.reason === 'chars') {
-          availEl.textContent = t.statusInvalidChars || '⚠️ Dozvoljena su slova, brojevi i _';
-        } else {
-          availEl.textContent = clean.length > 0 ? (t.statusTooShort || '⚠️ Min. 3 karaktera') : '';
-        }
-      }
-      return;
-    }
-
-    // If matches user's current active name
-    if (username && clean.toLowerCase() === username.toLowerCase()) {
-      isUsernameAvailable = true;
-      if (saveBtnEl) saveBtnEl.disabled = false;
-      if (availEl) {
-        availEl.className = 'uavail available';
-        availEl.textContent = t.statusCurrent || '✅ Vaše trenutno ime';
-      }
-      return;
-    }
-
-    if (!fb_db || !firebaseReady) {
-      // Offline fallback
-      isUsernameAvailable = true;
-      if (saveBtnEl) saveBtnEl.disabled = false;
-      if (availEl) {
-        availEl.className = 'uavail available';
-        availEl.textContent = t.statusAvailable || '✅ Nadimak je slobodan';
-      }
-      return;
-    }
-
-    const lower = clean.toLowerCase();
-    isCheckingAvailability = true;
-    if (saveBtnEl) saveBtnEl.disabled = true;
-    if (availEl) {
-      availEl.className = 'uavail checking';
-      availEl.textContent = t.statusChecking || '⏳ Proveravam...';
-    }
-
-    try {
-      if (!fb_auth || !fb_auth.currentUser) {
-        fb_auth && fb_auth.signInAnonymously && fb_auth.signInAnonymously().catch(()=>{});
-      }
-
-      const docRef = fb_db.collection('usernames').doc(lower);
-      const docSnap = await docRef.get();
-
-      // Ensure input hasn't changed while async call was pending
-      if (inputEl && inputEl.value.trim().toLowerCase() !== lower) return;
-
-      if (docSnap.exists) {
-        const data = docSnap.data();
-        if (data && data.uid === fb_userId) {
-          isUsernameAvailable = true;
-          if (saveBtnEl) saveBtnEl.disabled = false;
-          if (availEl) {
-            availEl.className = 'uavail available';
-            availEl.textContent = t.statusAvailable || '✅ Nadimak je slobodan';
-          }
-        } else {
-          isUsernameAvailable = false;
-          if (saveBtnEl) saveBtnEl.disabled = true;
-          if (availEl) {
-            availEl.className = 'uavail taken';
-            availEl.textContent = t.statusTaken || '❌ Nadimak je već zauzet';
-          }
-        }
-      } else {
-        isUsernameAvailable = true;
-        if (saveBtnEl) saveBtnEl.disabled = false;
-        if (availEl) {
-          availEl.className = 'uavail available';
-          availEl.textContent = t.statusAvailable || '✅ Nadimak je slobodan';
-        }
-      }
-    } catch (err) {
-      console.warn('[B&R] Availability check notice:', err);
-      isUsernameAvailable = true;
-      if (saveBtnEl) saveBtnEl.disabled = false;
-      if (availEl) {
-        availEl.className = 'uavail available';
-        availEl.textContent = t.statusAvailable || '✅ Nadimak je slobodan';
-      }
-    } finally {
-      isCheckingAvailability = false;
-    }
-  }
-
-  async function registerAndSaveUsername(rawName) {
-    const cleanName = (rawName || '').trim();
-    const lowerName = cleanName.toLowerCase();
-    const format = validateUsernameFormat(cleanName);
-    if (!format.valid) return false;
-
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-    const availEl = document.getElementById('usernameAvailability');
-
-    usernameSaveBtn.disabled = true;
-    if (availEl) {
-      availEl.className = 'uavail checking';
-      availEl.textContent = t.statusSaving || 'Čuvam...';
-    }
-
-    try {
-      if (fb_db && fb_auth) {
-        if (!fb_auth.currentUser) {
-          try {
-            await fb_auth.signInAnonymously();
-            if (fb_auth.currentUser) {
-              fb_userId = fb_auth.currentUser.uid;
-              localStorage.setItem('blocksrocks_userId', fb_userId);
-            }
-          } catch(authErr){
-            console.warn('[B&R] Anonymous auth sign-in warning:', authErr);
-          }
-        }
-
-        if (fb_userId) {
-          const oldLower = username ? username.toLowerCase() : null;
-          const newDocRef = fb_db.collection('usernames').doc(lowerName);
-
-          // 1. Check if name is genuinely taken by another user
-          try {
-            const checkSnap = await newDocRef.get();
-            if (checkSnap.exists) {
-              const data = checkSnap.data() || {};
-              if (data.uid && data.uid !== fb_userId) {
-                usernameSaveBtn.disabled = false;
-                if (availEl) {
-                  availEl.className = 'uavail taken';
-                  availEl.textContent = t.statusTaken || '❌ Nadimak je već zauzet';
-                }
-                return false;
-              }
-            }
-          } catch(checkErr){
-            console.warn('[B&R] Name existence check notice:', checkErr);
-          }
-
-          // 2. Set username in cloud registry
-          await newDocRef.set({
-            uid: fb_userId,
-            originalName: cleanName,
-            createdAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-          });
-
-          // 3. Set user profile
-          const userRef = fb_db.collection('users').doc(fb_userId);
-          await userRef.set({
-            username: cleanName,
-            countryCode: countryCode || 'XX',
-            updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-          }, { merge: true });
-
-          // 4. Safely clean up old username if changed
-          if (oldLower && oldLower !== lowerName) {
-            try {
-              const oldDocRef = fb_db.collection('usernames').doc(oldLower);
-              const oldSnap = await oldDocRef.get();
-              if (oldSnap.exists && oldSnap.data() && oldSnap.data().uid === fb_userId) {
-                await oldDocRef.delete();
-              }
-            } catch(delErr){
-              console.warn('[B&R] Old username cleanup notice:', delErr);
-            }
-          }
-        }
-      }
-
-      const wasOnboarding = isOnboarding;
-      saveUsername(cleanName);
-      isOnboarding = false;
-      usernameModal.classList.remove('is-onboarding');
-      usernameModal.style.display = 'none';
-      if (wasOnboarding) {
-        setPaused(false);
-      }
-
-      if (usernameCallback) usernameCallback(cleanName);
-      usernameCallback = null;
-      console.log('[B&R] Nickname registered & saved:', cleanName);
-      return true;
-    } catch (err) {
-      console.error('[B&R] Nickname registration fallback:', err);
-      // Ako je server ODBIO upis, razlikuj dva slučaja:
-      //  (a) ime je u međuvremenu zauzeto → prikaži "zauzeto", NE čuvaj lokalno
-      //  (b) App Check / rules odbijanje (npr. nevažeći token) → privremena greška
-      if (err && (err.code === 'permission-denied' || err.code === 'already-exists')) {
-        let takenByOther = false;
-        try {
-          if (fb_db) {
-            const verifySnap = await fb_db.collection('usernames').doc(lowerName).get();
-            takenByOther = !!(verifySnap.exists && verifySnap.data() && verifySnap.data().uid && verifySnap.data().uid !== fb_userId);
-          }
-        } catch(verifyErr) { /* i čitanje odbijeno/offline → tretiraj kao privremenu grešku */ }
-        if (takenByOther) {
-          usernameSaveBtn.disabled = false;
-          if (availEl) {
-            availEl.className = 'uavail taken';
-            availEl.textContent = t.statusTaken || '❌ Nadimak je već zauzet';
-          }
-          return false;
-        }
-        // Nije kolizija → pada na App Check/pravilima → nastavlja se u lokalni fallback ispod
-      }
-      // Fallback (samo mrežne/neočekivane greške): sačuvaj lokalno da korisnik ne bude blokiran
-      const wasOnboarding = isOnboarding;
-      saveUsername(cleanName);
-      isOnboarding = false;
-      usernameModal.classList.remove('is-onboarding');
-      usernameModal.style.display = 'none';
-      if (wasOnboarding) {
-        setPaused(false);
-      }
-
-      if (usernameCallback) usernameCallback(cleanName);
-      usernameCallback = null;
-      return true;
-    }
-  }
-
-  function showUsernameModal(callback, onboarding = false){
-    isOnboarding = !!onboarding;
-    if (isOnboarding) {
-      setPaused(true, true); // silent — bez pause overlay-a ispod modala
-    }
-    usernameInput.value = username || '';
-    const len = (username || '').length;
-    usernameCount.textContent = len + ' / 12';
-    usernameInput.classList.remove('invalid');
-    usernameCallback = callback || null;
-
-    usernameModal.classList.toggle('is-onboarding', isOnboarding);
-
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-    const settingsHeading = document.getElementById('settingsHeading');
-    const welcomeDesc = document.getElementById('usernameWelcomeDesc');
-    const availEl = document.getElementById('usernameAvailability');
-    if (availEl) { availEl.textContent = ''; availEl.className = 'uavail'; }
-
-    if (isOnboarding) {
-      if (settingsHeading) settingsHeading.textContent = t.onboardingTitle || '👋 DOBRODOŠLI!';
-      if (welcomeDesc) {
-        welcomeDesc.textContent = t.onboardingDesc || 'Unesite jedinstveni nadimak za rang listu i profil.';
-        welcomeDesc.style.display = 'block';
-      }
-      usernameSaveBtn.textContent = t.onboardingBtn || 'ZAPOČNI IGRU';
-    } else {
-      if (settingsHeading) settingsHeading.textContent = t.settingsTitle || '⚙️ PODEŠAVANJA & PROFIL';
-      if (welcomeDesc) welcomeDesc.style.display = 'none';
-      usernameSaveBtn.textContent = t.usernameSaveBtn || 'SAČUVAJ';
-    }
-
-    initSettingsUI();
-    usernameModal.style.display = 'flex';
-
-    if (username && username.length >= 3) {
-      checkAvailability(username);
-    } else {
-      usernameSaveBtn.disabled = true;
-      setTimeout(() => { try { usernameInput.focus(); } catch(e){} }, 150);
-    }
-  }
-
-  async function initUserIdentity() {
-    const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-    const GoogleAuth = window.Capacitor && window.Capacitor.Plugins && (window.Capacitor.Plugins.GoogleAuth || window.Capacitor.Plugins.GoogleAuthPlugin);
-
-    // 1. Silent Google Account check in the background
-    if (isNative && GoogleAuth) {
-      try {
-        await GoogleAuth.initialize({
-          clientId: '556570853814-42pn5174etkj86srceviqai3l701aofr.apps.googleusercontent.com',
-          scopes: ['profile', 'email'],
-          grantOfflineAccess: true
-        }).catch(() => {});
-
-        const silent = await GoogleAuth.refresh().catch(() => null);
-        if (silent && (silent.idToken || (silent.authentication && silent.authentication.idToken)) && fb_auth) {
-          const idToken = (silent.authentication && silent.authentication.idToken) || silent.idToken;
-          const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
-          const res = await fb_auth.signInWithCredential(credential);
-          if (res && res.user) {
-            console.log('[B&R] Silent Google Account restored:', res.user.uid);
-            await handleGoogleSignInSuccess(res.user, silent);
-            if (username) return;
-          }
-        }
-      } catch (silentErr) {
-        console.warn('[B&R] Silent Google login note:', silentErr);
-      }
-    }
-
-    // 2. Existing local username check & sync
-    if (username && username.trim().length >= 3) {
-      if (fb_db && firebaseReady && fb_userId) {
-        try {
-          const userRef = fb_db.collection('users').doc(fb_userId);
-          const snap = await userRef.get();
-          if (!snap.exists) {
-            registerAndSaveUsername(username).catch(e => console.warn('[B&R] Auto-sync local username failed:', e));
-          } else {
-            const data = snap.data() || {};
-            if (data.username && data.username !== username) {
-              username = data.username;
-              localStorage.setItem('blocksrocks_username', username);
-            }
-            if (data.personalBest && Number(data.personalBest) > personalBest) {
-              savePersonalBest(Number(data.personalBest));
-              best = personalBest;
-              if (bestEl) bestEl.textContent = best;
-            } else if (personalBest > (Number(data.personalBest) || 0)) {
-              userRef.set({
-                username: username.trim(),
-                countryCode: (countryCode && countryCode !== 'XX') ? countryCode : guessCountryFromDevice(),
-                personalBest: personalBest,
-                updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-              }, { merge: true }).catch(() => {});
-              submitScore(personalBest).catch(() => {});
-            }
-          }
-        } catch (e) {
-          console.warn('[B&R] User profile check notice:', e);
-        }
-      }
-      if (typeof fetchMyTop3 === 'function') fetchMyTop3();
-      if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
-      return;
-    }
-
-    // 3. Check Firestore users/{uid} for previous anonymous session
-    if (fb_db && firebaseReady && fb_userId) {
-      try {
-        const userRef = fb_db.collection('users').doc(fb_userId);
-        const snap = await userRef.get();
-        if (snap.exists) {
-          const data = snap.data() || {};
-          if (data.username) {
-            username = data.username;
-            localStorage.setItem('blocksrocks_username', username);
-            console.log('[B&R] Restored username from cloud profile:', username);
-          }
-          if (data.personalBest && Number(data.personalBest) > personalBest) {
-            savePersonalBest(Number(data.personalBest));
-            best = personalBest;
-            if (bestEl) bestEl.textContent = best;
-          }
-          if (typeof fetchMyTop3 === 'function') fetchMyTop3();
-          if (username) return;
-        }
-      } catch (e) {
-        console.warn('[B&R] Cloud profile check failed:', e);
-      }
-    }
-
-    // 4. Ako smo na Androidu (Native), nema modala, uzima se Play Games ime ili generiše
-    if (isNative) {
-      const pgsName = localStorage.getItem('blocksrocks_pgsDisplayName');
-      let finalName = '';
-      if (pgsName && pgsName.trim().length >= 3) {
-        finalName = pgsName.replace(/[^a-zA-Z0-9_\-\u00C0-\u024F\u0400-\u04FF ]/g, '').substring(0, 12).trim();
-      }
-      if (finalName.length < 3) {
-        const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-        const prefix = t.guestPrefix || 'Igrač';
-        const guestNum = Math.floor(1000 + Math.random() * 9000);
-        finalName = `${prefix}_${guestNum}`;
-      }
-      
-      console.log('[B&R] Auto-assigning native username:', finalName);
-      
-      return new Promise((resolve) => {
-        registerAndSaveUsername(finalName).then(() => {
-          if (typeof fetchMyTop3 === 'function') fetchMyTop3();
-          if (typeof updateBottomRecords === 'function') updateBottomRecords(false);
-          resolve(true);
-        }).catch(err => {
-          console.warn('[B&R] Native auto-register failed:', err);
-          resolve(false);
-        });
-      });
-    }
-
-    // 5. Polu-Friction: Show First-Run Modal instead of silent assignment (samo za Web)
-    return new Promise((resolve) => {
-      const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-      const prefix = t.guestPrefix || 'Igrač';
-      const guestNum = Math.floor(1000 + Math.random() * 9000);
-      const guestName = `${prefix}_${guestNum}`;
-      
-      const modal = document.getElementById('firstRunModal');
-      const input = document.getElementById('firstRunNickname');
-      const btn = document.getElementById('firstRunStartBtn');
-      const availEl = document.getElementById('firstRunAvailability');
-      
-      if(modal && input && btn){
-        input.value = guestName;
-        modal.style.display = 'flex';
-        
-        // Timeout to ensure display:flex is rendered before focusing
-        setTimeout(() => input.focus(), 50);
-        
-        let checkAvailabilityTimeout = null;
-        input.addEventListener('input', () => {
-          const raw = input.value;
-          const len = raw.trim().length;
-          input.classList.toggle('invalid', len > 0 && (len < 3 || len > 12));
-          
-          clearTimeout(checkAvailabilityTimeout);
-          checkAvailabilityTimeout = setTimeout(() => {
-            checkAvailability(raw, availEl, btn, input);
-          }, 500);
-        });
-
-        // Trigger initial check for generated name
-        checkAvailability(guestName, availEl, btn, input);
-        
-        btn.onclick = () => {
-          const raw = input.value.trim();
-          const finalName = raw.length >= 3 ? raw : guestName;
-          
-          username = finalName;
-          localStorage.setItem('blocksrocks_username', finalName);
-          if (usernameInput) usernameInput.value = finalName;
-          console.log('[B&R] Assigned first-run nickname:', finalName);
-          
-          if (fb_db && firebaseReady) {
-            registerAndSaveUsername(finalName).catch(e => console.warn('[B&R] Auto-register notice:', e));
-          }
-          
-          modal.style.display = 'none';
-          resolve();
-        };
-      } else {
-        username = guestName;
-        localStorage.setItem('blocksrocks_username', guestName);
-        if (usernameInput) usernameInput.value = guestName;
-        resolve();
-      }
-    });
-  }
-
-  // Username Input Listeners
-  usernameInput.addEventListener('input', ()=>{
-    const raw = usernameInput.value;
-    const len = raw.trim().length;
-    usernameCount.textContent = len + ' / 12';
-    usernameInput.classList.toggle('invalid', len > 0 && (len < 3 || len > 12));
-    usernameCount.classList.toggle('warn', len > 12);
-
-    clearTimeout(checkAvailabilityTimeout);
-    checkAvailabilityTimeout = setTimeout(() => {
-      checkAvailability(raw);
-    }, 280);
-  });
-
-  usernameSaveBtn.addEventListener('click', ()=>{
-    registerAndSaveUsername(usernameInput.value);
-  });
-
-  // Enter key in username input
-  usernameInput.addEventListener('keydown', (e)=>{
-    if(e.key === 'Enter' && !usernameSaveBtn.disabled){
-      usernameSaveBtn.click();
-    }
-  });
-
-  // Close button on username modal
-  usernameCloseBtn.addEventListener('click', ()=>{
-    if (isOnboarding) return;
-    usernameModal.style.display = 'none';
-    usernameCallback = null;
-  });
-
-  // Close on backdrop click
-  usernameModal.addEventListener('click', (e)=>{
-    if (isOnboarding) return;
-    if (e.target === usernameModal){
-      usernameModal.style.display = 'none';
-      usernameCallback = null;
-    }
-  });
-
-  // Settings button
-  document.getElementById('btnSettings').addEventListener('click', ()=>{
-    showUsernameModal(null, false);
-    if(typeof updateGoogleLinkStatus === 'function') updateGoogleLinkStatus();
-  });
-
-
-
-  /* ═══════════════════════════════════════════════
-   *  OFFLINE SCORE QUEUE & FIRESTORE SCORE SUBMIT
-   * ═══════════════════════════════════════════════ */
-  function queueOfflineScore(scoreVal, userVal, countryVal){
-    try {
-      const queue = JSON.parse(localStorage.getItem('blocksrocks_pendingScores') || '[]');
-      queue.push({
-        score: scoreVal,
-        username: userVal,
-        countryCode: countryVal,
-        createdAt: Date.now()
-      });
-      localStorage.setItem('blocksrocks_pendingScores', JSON.stringify(queue));
-    } catch(e){}
-  }
-
-  async function syncOfflineScores(){
-    if(!firebaseReady || !fb_userId || !fb_db || !username || username.trim().length < 3) return;
-    try {
-      const raw = localStorage.getItem('blocksrocks_pendingScores');
-      const queue = raw ? JSON.parse(raw) : [];
-
-      // PRVO profil — security rules vezuju leaderboard za users/{uid}.username,
-      // pa upisi bez profila (ili sa zastarelim imenom) bivaju odbijeni.
-      const profileCc = (countryCode && countryCode !== 'XX') ? countryCode : guessCountryFromDevice();
-      const validProfileCc = (profileCc && profileCc.length === 2 && profileCc !== 'XX') ? profileCc : 'XX';
-
-      // Proveri da li je personalBest na oblaku usklađen
-      const userRef = fb_db.collection('users').doc(fb_userId);
-      const userSnap = await userRef.get().catch(() => null);
-      const cloudPb = (userSnap && userSnap.exists) ? Number(userSnap.data().personalBest || 0) : 0;
-
-      const needsProfileUpdate = !userSnap || !userSnap.exists || (userSnap.data() && userSnap.data().username !== username.trim()) || personalBest > cloudPb;
-
-      if (needsProfileUpdate) {
-        await userRef.set({
-          username: username.trim(),
-          countryCode: validProfileCc,
-          personalBest: Math.max(personalBest, cloudPb),
-          updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-        }, { merge: true });
-      }
-
-      if (personalBest > cloudPb) {
-        if (!queue.some(item => Number(item.score) === personalBest)) {
-          queue.push({
-            score: personalBest,
-            username: username.trim(),
-            countryCode: validProfileCc,
-            createdAt: Date.now()
-          });
-        }
-      }
-
-      if(!Array.isArray(queue) || !queue.length) {
-        if(typeof updateBottomRecords === 'function') await updateBottomRecords(true);
-        return;
-      }
-
-      console.log('[B&R] Syncing ' + queue.length + ' score(s)...');
-
-      for(const item of queue){
-        if(!item || !item.score || isNaN(item.score)) continue;
-        const cc = (item.countryCode && item.countryCode !== 'XX') ? item.countryCode : validProfileCc;
-        const validCc = (cc && cc.length === 2 && cc !== 'XX') ? cc : 'XX';
-
-        await fb_db.collection('leaderboard').add({
-          userId: fb_userId,
-          username: username.trim(),
-          score: parseInt(item.score, 10),
-          countryCode: validCc,
-          createdAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-        });
-      }
-      localStorage.removeItem('blocksrocks_pendingScores');
-
-      await capUserEntries();
-      if(typeof updateBottomRecords === 'function') await updateBottomRecords(true);
-      console.log('[B&R] Offline scores sync completed successfully.');
-    } catch(e){
-      console.warn('[B&R] Offline scores sync notice:', e.message);
-    }
-  }
-
-  async function submitScore(finalScore){
-    const s = parseInt(finalScore, 10);
-    if(isNaN(s) || s <= 0) return;
-
-    // 1. Update personalBest locally immediately
-    if(s > personalBest){
-      savePersonalBest(s);
-      best = s;
-      if(bestEl) bestEl.textContent = best;
-    }
-
-    const cc = (countryCode && countryCode !== 'XX') ? countryCode : guessCountryFromDevice();
-    const validCc = (cc && cc.length === 2 && cc !== 'XX') ? cc : 'XX';
-
-    // 2. Add to local score history (offline resilience)
-    try {
-      let localHistory = JSON.parse(localStorage.getItem('blocksrocks_myScores') || '[]');
-      localHistory.push({
-        score: s,
-        username: username || 'Igrač',
-        countryCode: validCc,
-        createdAt: Date.now()
-      });
-      localHistory = GameCore.sortScoresByTop(localHistory, MAX_ENTRIES_PER_USER);
-      localStorage.setItem('blocksrocks_myScores', JSON.stringify(localHistory));
-    } catch(e){}
-
-    if(!username || username.trim().length < 3) return;
-
-    if(!firebaseReady || !fb_userId){
-      queueOfflineScore(s, username, validCc);
-      return;
-    }
-
-    try {
-      // 3. Update user profile in Firestore with personalBest & country
-      //    AWAIT je obavezan — security rules vezuju leaderboard za users/{uid}.username,
-      //    pa leaderboard upis pre osveženog profila biva odbijen (permission-denied).
-      if(fb_db){
-        await fb_db.collection('users').doc(fb_userId).set({
-          username: username.trim(),
-          countryCode: validCc,
-          personalBest: personalBest,
-          updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-        }, { merge: true });
-      }
-
-      // 4. Add to leaderboard collection
-      const added = await fb_db.collection('leaderboard').add({
-        userId: fb_userId,
-        username: username.trim(),
-        score: s,
-        countryCode: validCc,
-        createdAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue) ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
-      });
-      console.log('[B&R] Leaderboard entry added:', s, validCc, added.id);
-      track('leaderboard_submit', { score: s });
-
-      // 5. Also sync any pending offline scores if any exist
-      await syncOfflineScores();
-
-      // 6. Cap user entries to top 3
-      await capUserEntries();
-
-      // 7. Update bottom widget and leaderboard cache immediately
-      if(typeof updateBottomRecords === 'function') await updateBottomRecords(true);
-    } catch(err){
-      console.warn('[B&R] Score submit network failed, queueing offline:', err.message);
-      queueOfflineScore(s, username, validCc);
-    }
-  }
-
-  // Keep only the top MAX_ENTRIES_PER_USER results per user (top-3 per user)
-  async function capUserEntries(){
-    if(!firebaseReady || !fb_userId || !fb_db) return;
-    try {
-      const snap = await fb_db.collection('leaderboard')
-        .where('userId', '==', fb_userId)
-        .get();
-      if(snap.docs.length <= MAX_ENTRIES_PER_USER) return;
-
-      const docs = snap.docs.slice().sort((a, b) => (Number(b.data().score) || 0) - (Number(a.data().score) || 0));
-      const extras = docs.slice(MAX_ENTRIES_PER_USER);
-      for(const doc of extras) await doc.ref.delete();
-      if(extras.length) console.log('[B&R] Capped user entries:', extras.length);
-    } catch(err){
-      console.warn('[B&R] capUserEntries failed:', err.message);
-    }
-  }
-
-  // Migrira stari jednodokumentni "scores/{uid}" u novi multi-score model.
-  // Trči automatski pri logovanju — bez dodatnih kredencijala.
-  async function migrateLegacyScore(){
-    if(!firebaseReady || !fb_userId) return;
-    try {
-      const legacy = await fb_db.collection('scores').doc(fb_userId).get();
-      if(!legacy.exists) return;
-      const data = legacy.data();
-      const legacyScore = Number(data && data.score) || 0;
-      if(legacyScore <= 0) return;
-
-      // Ako već imamo jednako ili bolje u novoj kolekciji, preskačemo
-      const mine = await fb_db.collection('leaderboard')
-        .where('userId', '==', fb_userId)
-        .get();
-      const myDocs = mine.docs.map(d => d.data());
-      if(myDocs.some(d => (Number(d.score) || 0) >= legacyScore)) return;
-
-      // Rules binding: leaderboard.username mora biti jednak users/{uid}.username,
-      // pa migrirani rezultat upisujemo pod TRENUTNIM imenom korisnika (ne legacy).
-      const uname = (username && username.trim().length >= 3) ? username.trim() : null;
-      if (!uname) { console.warn('[B&R] Legacy migration skipped: no registered username yet.'); return; }
-      const cc = (typeof data.countryCode === 'string' && data.countryCode.length === 2 && data.countryCode !== 'XX')
-        ? data.countryCode : (countryCode && countryCode !== 'XX' ? countryCode : guessCountryFromDevice());
-
-      // Osiguraj da profil postoji PRE upisa u leaderboard (rules proveravaju profil)
-      await fb_db.collection('users').doc(fb_userId).set({
-        username: uname,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-
-      const added = await fb_db.collection('leaderboard').add({
-        userId: fb_userId,
-        username: uname,
-        score: legacyScore,
-        countryCode: (cc && cc !== 'XX') ? cc : 'XX',
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-      console.log('[B&R] Legacy score migrated:', legacyScore, added.id);
-    } catch(err){
-      console.warn('[B&R] Legacy migration failed:', err.message);
-    }
-  }
 
   /* ═══════════════════════════════════════════════
    *  GAME CORE
@@ -1905,6 +932,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
 
   /* ═══ MODULE WIRING (ES moduli + dependency injection) ═══ */
   initAudio({ getT: () => TRANSLATIONS[currentLang] || TRANSLATIONS.en });
+  initAchievements({ GameCore });
   initEffects({ CONFIG, SIZE, boardEl, scoreEl,
                 getGrid: () => grid,
                 getParticleTrailEnabled: () => particleTrailEnabled,
@@ -1912,7 +940,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
   initLeaderboard({
     haptic, debounceAction, CONFIG,
     countryFlag, getFullCountryName, guessCountryFromDevice,
-    getFirebase: () => ({ fb_db, firebaseReady, fb_userId }),
+    GameCore,
+    getFirebase: () => ({ fb_app, fb_appCheck, fb_auth, fb_db, fb_userId, firebaseReady }),
     getUsername: () => username,
     getCountryCode: () => countryCode,
     getCurrentLang: () => currentLang,
@@ -1922,6 +951,77 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     getGameOver: () => gameOver,
     overlayEl,
   });
+
+  const authDeps = {
+    getFirebase: () => ({ fb_app, fb_appCheck, fb_auth, fb_db, fb_userId, firebaseReady }),
+    get username() { return username; },
+    set username(v) { username = v; },
+    get personalBest() { return personalBest; },
+    set personalBest(v) { personalBest = v; },
+    get best() { return best; },
+    set best(v) { best = v; if (bestEl) bestEl.textContent = best; },
+    bestEl,
+    get countryCode() { return countryCode; },
+    get currentLang() { return currentLang; },
+    guessCountryFromDevice,
+    setPaused,
+    showMsg,
+    haptic,
+    track,
+    fetchMyTop3,
+    updateBottomRecords,
+    initSettingsUI,
+    submitScore,
+    GameCore
+  };
+  initUserAuth(authDeps);
+  bindUserAuthEvents();
+
+  const scoresDeps = {
+    getFirebase: () => ({ fb_app, fb_appCheck, fb_auth, fb_db, fb_userId, firebaseReady }),
+    getUsername: () => username,
+    getCountryCode: () => countryCode,
+    getPersonalBest: () => personalBest,
+    getCurrentLang: () => currentLang,
+    get username() { return username; },
+    get countryCode() { return countryCode; },
+    get personalBest() { return personalBest; },
+    get currentLang() { return currentLang; },
+    get best() { return best; },
+    set best(v) { best = v; if (bestEl) bestEl.textContent = best; },
+    bestEl,
+    guessCountryFromDevice,
+    savePersonalBest,
+    showMsg,
+    track,
+    updateBottomRecords,
+    GameCore
+  };
+  initScoresSync(scoresDeps);
+
+  const statsDeps = {
+    get currentLang() { return currentLang; },
+    get score() { return score; },
+    get best() { return best; },
+    safeSetItem,
+    renderBadgesGrid
+  };
+  initStatsHistory(statsDeps);
+
+  let lastGameOverScore = 0;
+  let lastGameOverCombo = 0;
+
+  const shareDeps = {
+    get currentLang() { return currentLang; },
+    get lastGameOverScore() { return lastGameOverScore; },
+    get lastGameOverCombo() { return lastGameOverCombo; },
+    get score() { return score; },
+    get comboStreak() { return comboStreak; },
+    showMsg,
+    haptic,
+    GameCore
+  };
+  initShareUI(shareDeps);
 
 
   function updatePowerupUI(){
@@ -2648,7 +1748,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     grantPowerupRewards(prevScore, score);
     checkFibonacciMilestones(score);
     checkMilestones(score);
-    checkAndUnlockBadges(careerStats, score, best, currentLang);
+    checkAndUnlockBadges(getCareerStats(), score, best, currentLang);
     let willClear = false;
     for(let r=0; r<SIZE; r++){ if(grid[r].every(v=>v)) { willClear = true; break; } }
     if(!willClear){
@@ -3210,7 +2310,7 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     }
     checkFibonacciMilestones(score);
     checkMilestones(score);
-    checkAndUnlockBadges(careerStats, score, best, currentLang);
+    checkAndUnlockBadges(getCareerStats(), score, best, currentLang);
 
     playComboAudio(comboStreak, linesCleared);
     updatePowerupUI();
@@ -3954,320 +3054,6 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
       console.warn('[B&R] localStorage write failed for', key, e && e.message);
     }
   }
-
-  /* ═══════════════════════════════════════════════
-   *  CAREER STATISTICS (Lifetime Stats Dashboard)
-   * ═══════════════════════════════════════════════ */
-  let careerStats = {
-    gamesPlayed: 0,
-    linesCleared: 0,
-    bombsDefused: 0,
-    rocksCrushed: 0,
-    maxCombo: 1,
-    totalScore: 0
-  };
-
-  function loadCareerStats(){
-    try {
-      const saved = JSON.parse(localStorage.getItem('blocksrocks_careerStats'));
-      if (saved && typeof saved === 'object') {
-        careerStats = { ...careerStats, ...saved };
-      }
-    } catch(e){}
-  }
-
-  function saveCareerStats() {
-    safeSetItem('blocksrocks_careerStats', JSON.stringify(careerStats));
-  }
-
-  function recordCareerStat(key, increment = 1){
-    loadCareerStats();
-    if (key === 'maxCombo') {
-      careerStats.maxCombo = Math.max(careerStats.maxCombo || 1, increment);
-    } else {
-      careerStats[key] = (careerStats[key] || 0) + increment;
-    }
-    saveCareerStats();
-  }
-
-  function renderCareerStats(){
-    loadCareerStats();
-    const gEl = document.getElementById('statGames');
-    const aEl = document.getElementById('statAvgScore');
-    const mcEl = document.getElementById('statMasterCombos');
-    const c2 = document.getElementById('statCombo2x');
-    const c3 = document.getElementById('statCombo3x');
-    const c4 = document.getElementById('statCombo4x');
-    const c5 = document.getElementById('statCombo5x');
-    const c6 = document.getElementById('statCombo6x');
-
-    if(gEl) gEl.textContent = (careerStats.gamesPlayed || 0).toLocaleString();
-    const avg = careerStats.gamesPlayed > 0 ? Math.round((careerStats.totalScore || 0) / careerStats.gamesPlayed) : 0;
-    if(aEl) aEl.textContent = avg.toLocaleString();
-
-    const avgTimeEl = document.getElementById('statAvgTime');
-    const totalSec = careerStats.totalPlayTimeSec || 0;
-    const avgSec = careerStats.gamesPlayed > 0 ? Math.floor(totalSec / careerStats.gamesPlayed) : 0;
-    const m = Math.floor(avgSec / 60);
-    const s = avgSec % 60;
-    if(avgTimeEl) avgTimeEl.textContent = m + ':' + (s < 10 ? '0' : '') + s;
-
-    if(mcEl) mcEl.textContent = (careerStats.masterCombos || 0).toLocaleString();
-    
-    if(c2) c2.textContent = (careerStats.combo2xCount || 0).toLocaleString();
-    if(c3) c3.textContent = (careerStats.combo3xCount || 0).toLocaleString();
-    if(c4) c4.textContent = (careerStats.combo4xCount || 0).toLocaleString();
-    if(c5) c5.textContent = (careerStats.combo5xCount || 0).toLocaleString();
-    if(c6) c6.textContent = (careerStats.combo6xCount || 0).toLocaleString();
-
-    const bgEl = document.getElementById('badgesGrid');
-    if(bgEl) renderBadgesGrid(bgEl, careerStats, score, best, currentLang);
-  }
-
-  /* ═══════════════════════════════════════════════
-   *  MATCH HISTORY (Local Recent Matches)
-   * ═══════════════════════════════════════════════ */
-  function saveMatchToHistory(scoreVal, maxComboVal){
-    try {
-      let history = JSON.parse(localStorage.getItem('blocksrocks_matchHistory') || '[]');
-      const dateStr = new Date().toLocaleDateString(currentLang === 'sr' ? 'sr-RS' : 'en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-      history.unshift({
-        score: scoreVal,
-        maxCombo: maxComboVal || 1,
-        date: dateStr,
-        timestamp: Date.now()
-      });
-      if(history.length > 10) history = history.slice(0, 10);
-      safeSetItem('blocksrocks_matchHistory', JSON.stringify(history));
-    } catch(e){
-      console.warn('[B&R] saveMatchToHistory failed:', e && e.message);
-    }
-  }
-
-  function renderMatchHistory(){
-    const listEl = document.getElementById('matchHistoryList');
-    if(!listEl) return;
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-    let history = [];
-    try {
-      history = JSON.parse(localStorage.getItem('blocksrocks_matchHistory') || '[]');
-    } catch(e){}
-    if(!history.length){
-      listEl.innerHTML = '<div style="font-size:11px; color:var(--dim); font-family:JetBrains Mono, monospace; text-align:center; padding:12px 0;">' + (t.noHistoryMsg || 'Nema odigranih partija.') + '</div>';
-      return;
-    }
-    let html = '';
-    history.forEach(item => {
-      html += '<div class="match-history-item">'
-        + '<div>'
-        + '<span class="m-score">' + (item.score || 0).toLocaleString() + ' pts</span>'
-        + (item.maxCombo > 1 ? '<span class="m-combo">🔥 x' + item.maxCombo + '</span>' : '')
-        + '</div>'
-        + '<span class="m-date">' + escapeHtml(item.date || '') + '</span>'
-        + '</div>';
-    });
-    listEl.innerHTML = html;
-  }
-
-  /* ═══════════════════════════════════════════════
-   *  GAME TOAST & SHARE SCORE FLOW
-   * ═══════════════════════════════════════════════ */
-  let gameToastTimer = null;
-  function showGameToast(msg, type = 'info', duration = 3000) {
-    let toast = document.getElementById('gameToastBanner');
-    if (!toast) {
-      toast = document.createElement('div');
-      toast.id = 'gameToastBanner';
-      toast.className = 'game-toast';
-      document.body.appendChild(toast);
-    }
-    const typeClass = type === 'success' ? 'success' : (type === 'error' ? 'error' : '');
-    toast.innerHTML = `<div class="game-toast-content ${typeClass}">${escapeHtml(msg)}</div>`;
-    toast.classList.remove('show');
-    void toast.offsetWidth; // trigger reflow
-    toast.classList.add('show');
-
-    clearTimeout(gameToastTimer);
-    gameToastTimer = setTimeout(() => {
-      toast.classList.remove('show');
-    }, duration);
-  }
-
-  let shareBtnTimer = null;
-  function showShareFeedback(mode) {
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-    const btnShare = document.getElementById('btnShareScore');
-
-    if (mode === 'copied') {
-      const msg = t.scoreCopiedMsg || '📋 Rezultat kopiran u privremenu memoriju!';
-      showGameToast(msg, 'success', 3000);
-      showMsg(msg, 3000);
-      haptic('light');
-
-      if (btnShare) {
-        btnShare.textContent = t.btnShareCopied || '📋 KOPIRANO! ✓';
-        btnShare.classList.remove('failed');
-        btnShare.classList.add('copied');
-      }
-    } else if (mode === 'shared') {
-      const msg = t.scoreSharedMsg || '📤 Rezultat uspešno podeljen!';
-      showGameToast(msg, 'success', 3000);
-      showMsg(msg, 3000);
-      haptic('success');
-
-      if (btnShare) {
-        btnShare.textContent = t.btnShareSuccess || '📤 PODELJENO! ✓';
-        btnShare.classList.remove('failed');
-        btnShare.classList.add('copied');
-      }
-    } else if (mode === 'failed') {
-      const msg = t.scoreCopyFailed || '❌ Nije moguće podeliti rezultat';
-      showGameToast(msg, 'error', 3000);
-      showMsg(msg, 3000);
-      haptic('warning');
-
-      if (btnShare) {
-        btnShare.textContent = t.btnShareFailed || '❌ NEUSPELO';
-        btnShare.classList.remove('copied');
-        btnShare.classList.add('failed');
-      }
-    }
-
-    if (btnShare) {
-      clearTimeout(shareBtnTimer);
-      shareBtnTimer = setTimeout(() => {
-        btnShare.classList.remove('copied', 'failed');
-        const curT = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-        btnShare.textContent = curT.btnShareScore || '📤 PODELI REZULTAT';
-      }, 2500);
-    }
-  }
-
-  async function copyScoreToClipboard(text) {
-    let copied = false;
-    // 1. Probaj moderni asinhroni Clipboard API ako je dostupan
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-      try {
-        await navigator.clipboard.writeText(text);
-        copied = true;
-      } catch (e) {
-        console.warn('[B&R] navigator.clipboard.writeText failed, using textarea fallback:', e);
-      }
-    }
-
-    // 2. Pouzdani textarea + execCommand fallback za mobilne pregledače / iframes / WebViews
-    if (!copied) {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.setAttribute('readonly', '');
-        ta.style.position = 'fixed';
-        ta.style.top = '0';
-        ta.style.left = '-9999px';
-        ta.style.opacity = '0';
-        ta.style.pointerEvents = 'none';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        ta.setSelectionRange(0, 99999);
-        const successful = document.execCommand('copy');
-        document.body.removeChild(ta);
-        if (successful) {
-          copied = true;
-        }
-      } catch (err) {
-        console.warn('[B&R] execCommand copy failed:', err);
-      }
-    }
-
-    return copied;
-  }
-
-  let lastGameOverScore = 0;
-  let lastGameOverCombo = 0;
-
-  async function shareScore(){
-    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-    const shareTitle = "Blocks and Rocks";
-    const currentScore = (typeof lastGameOverScore === 'number' && lastGameOverScore > 0)
-      ? lastGameOverScore
-      : (score || parseInt(document.getElementById('finalscore')?.textContent || '0', 10));
-    const currentCombo = (typeof lastGameOverCombo === 'number' && lastGameOverCombo > 0)
-      ? lastGameOverCombo
-      : comboStreak;
-
-    const gameUrl = (window.location.protocol && window.location.protocol.startsWith('http'))
-      ? (window.location.origin + window.location.pathname)
-      : 'https://blocks-and-rocks.web.app';
-
-    const shareText = GameCore.formatShareScoreText({
-      score: currentScore,
-      comboStreak: currentCombo,
-      sub: t.sub,
-      shareScored: t.shareScored,
-      sharePoints: t.sharePoints,
-      shareBestCombo: t.shareBestCombo,
-      shareChallenge: t.shareChallenge,
-      url: gameUrl,
-    });
-
-    let shareSuccess = false;
-    let isCancelled = false;
-
-    // 1. Capacitor native Share dodatak ako je pokrenut kao izvorna aplikacija
-    if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.Share) {
-      try {
-        await window.Capacitor.Plugins.Share.share({
-          title: shareTitle,
-          text: shareText,
-          url: gameUrl,
-          dialogTitle: shareTitle
-        });
-        shareSuccess = true;
-      } catch (err) {
-        if (err && (err.name === 'AbortError' || (err.message && err.message.toLowerCase().includes('cancel')))) {
-          isCancelled = true;
-        }
-      }
-    }
-
-    // 2. Web Share API za mobilne browsere (Chrome Android, Safari iOS, Edge)
-    if (!shareSuccess && !isCancelled && typeof navigator.share === 'function') {
-      try {
-        await navigator.share({
-          title: shareTitle,
-          text: shareText,
-          url: gameUrl
-        });
-        shareSuccess = true;
-      } catch (err) {
-        if (err && err.name === 'AbortError') {
-          isCancelled = true;
-        }
-      }
-    }
-
-    if (isCancelled) {
-      return;
-    }
-
-    if (shareSuccess) {
-      showShareFeedback('shared');
-    } else {
-      const copied = await copyScoreToClipboard(shareText);
-      if (copied) {
-        showShareFeedback('copied');
-      } else {
-        showShareFeedback('failed');
-      }
-    }
-  }
-
   /* ═══════════════════════════════════════════════
    *  GAME OVER HANDLER — integrates score submit, history & career stats
    * ═══════════════════════════════════════════════ */
@@ -4314,8 +3100,8 @@ import { checkAndUnlockBadges, renderBadgesGrid, getHighestBadge, loadBadges } f
     }
     document.getElementById('newbestLabel').style.display = isNewBest ? '' : 'none';
 
-    checkAndUnlockBadges(careerStats, finalScore, best, currentLang);
-    const highestBadge = getHighestBadge(careerStats, best);
+    checkAndUnlockBadges(getCareerStats(), finalScore, best, currentLang);
+    const highestBadge = getHighestBadge(getCareerStats(), best);
     const gob = document.getElementById('gameOverBadge');
     if (gob) {
       if (highestBadge) {

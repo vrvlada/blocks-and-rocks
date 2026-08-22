@@ -17,7 +17,7 @@ export const MAX_ENTRIES_PER_USER = 3;
 
 let D = null;
 const FB = () => D.getFirebase();
-const GameCore = window.GameCore;
+let GameCore = null;
 
 /* ── DOM refs (popunjava initLeaderboard) ── */
 let lbOverlay, lbPersonalBest, lbMyList, lbContent, lbLoadMoreWrap, lbLoadMoreBtn, lbCountryLabel, tabCountry, tabGlobal;
@@ -66,6 +66,7 @@ export function getCachedGlobalTopScore(){
 
 export function initLeaderboard(deps){
   D = deps;
+  GameCore = deps.GameCore;
 
   lbOverlay = document.getElementById('lb-overlay');
   lbPersonalBest = document.getElementById('lbPersonalBest');

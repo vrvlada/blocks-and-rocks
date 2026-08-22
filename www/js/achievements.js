@@ -10,6 +10,12 @@ import { escapeHtml } from './utils.js';
 const STORAGE_KEY = 'blocksrocks_badges';
 
 let unlockedBadges = null;
+let GC = null;
+
+/** Dependency injection — prima { GameCore } iz app.js */
+export function initAchievements(deps) {
+  GC = deps.GameCore;
+}
 
 /** Učitava otključane bedževe iz localStorage (keširano u memoriji) */
 export function loadBadges(force = false) {
@@ -73,10 +79,10 @@ export function showBadgeUnlockToast(badge, currentLang) {
  * Vraća niz novootključanih bedževa.
  */
 export function checkAndUnlockBadges(stats, currentScore, personalBest, currentLang = 'sr') {
-  if (typeof window.GameCore === 'undefined' || !window.GameCore.BADGES) return [];
+  if (!GC || !GC.BADGES) return [];
   
   loadBadges();
-  const newlyUnlocked = window.GameCore.checkNewBadges(unlockedBadges, stats, currentScore, personalBest);
+  const newlyUnlocked = GC.checkNewBadges(unlockedBadges, stats, currentScore, personalBest);
   
   if (newlyUnlocked.length > 0) {
     newlyUnlocked.forEach((badge, idx) => {
@@ -109,7 +115,7 @@ export function getHighestBadge(stats, pb) {
   ];
   for (const id of rankOrder) {
     if (unlockedBadges[id]) {
-      const b = (window.GameCore && window.GameCore.BADGES) ? window.GameCore.BADGES.find(x => x.id === id) : null;
+      const b = (GC && GC.BADGES) ? GC.BADGES.find(x => x.id === id) : null;
       if (b) return b;
     }
   }
@@ -118,11 +124,11 @@ export function getHighestBadge(stats, pb) {
 
 /** Renderuje bedževe u HTML grid unutar modala profila/podešavanja */
 export function renderBadgesGrid(containerEl, stats, score, pb, currentLang = 'sr') {
-  if (!containerEl || typeof window.GameCore === 'undefined' || !window.GameCore.BADGES) return;
+  if (!containerEl || !GC || !GC.BADGES) return;
   loadBadges();
   
   const t = TRANSLATIONS[currentLang] || TRANSLATIONS.sr;
-  const badges = window.GameCore.BADGES;
+  const badges = GC.BADGES;
   
   const destroyerBadges = badges.filter(b => b.id.startsWith('destroyer_'));
   const otherBadges = badges.filter(b => !b.id.startsWith('destroyer_'));

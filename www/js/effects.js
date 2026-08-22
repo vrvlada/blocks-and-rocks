@@ -36,6 +36,8 @@ export function triggerScreenShake(intensity = 'light'){
  * ══════════════════════════════════════════════════════════════════════ */
 let canvas = null;
 let ctx = null;
+let _canvasInitDone = false;
+let _canvasResizeHandler = null;
 
 const MAX_PARTICLES = 300;
 const particles = Array.from({length: MAX_PARTICLES}, () => ({
@@ -55,7 +57,8 @@ function getFreeParticle() {
 
 function initCanvasEngine(){
   canvas = document.getElementById('confettiCanvas');
-  if (!canvas) return;
+  if (!canvas || _canvasInitDone) return;
+  _canvasInitDone = true;
   try {
     ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false });
   } catch(e) {
@@ -71,6 +74,7 @@ function initCanvasEngine(){
     canvas.style.height = window.innerHeight + 'px';
   };
   window.addEventListener('resize', resize, { passive: true });
+  _canvasResizeHandler = resize;
   resize();
 }
 

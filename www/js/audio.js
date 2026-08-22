@@ -21,6 +21,9 @@ let _getT = () => ({}); // () => TRANSLATIONS[currentLang]
 let worldRecordAudioBuffer = null;
 let worldRecordLoadPromise = null;
 
+let comboAudioBuffer = null;
+let comboLoadPromise = null;
+
 export async function loadWorldRecordBuffer() {
   if (worldRecordAudioBuffer) return worldRecordAudioBuffer;
   if (worldRecordLoadPromise) return worldRecordLoadPromise;

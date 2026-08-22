@@ -1,0 +1,23 @@
+{
+  "name": "Blocks and Rocks",
+  "short_name": "Blocks & Rocks",
+  "description": "Statička slagalica — postavljaj blokove, čisti linije, izbegavaj bombe!",
+  "start_url": "/game.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c0e14",
+  "theme_color": "#0c0e14",
+  "icons": [
+    {
+      "src": "/assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

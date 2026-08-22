@@ -10,6 +10,9 @@
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#0c0e14">
 <meta name="google-site-verification" content="Px_ogrzXbcVNR_PSEL9aEh2aXKrGlhfHTxdU1veRETI">
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="icon" type="image/png" sizes="64x64" href="assets/favicon.png">
 <link rel="icon" type="image/x-icon" href="favicon.ico">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
@@ -23,7 +26,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700;800&family=Outfit:wght@800;900&family=Space+Grotesk:wght@700;800&display=swap">
-  <link rel="stylesheet" href="styles.css?v=2.9.6">
+  <link rel="stylesheet" href="styles.css?v=2.9.7">
 </head>
 <body>
 <div class="stars layer3"></div>
@@ -148,7 +151,7 @@
     <div class="setting-section" id="usernameSectionContainer">
       <div class="setting-label" id="i18n_usernameLabel">👤 KORISNIČKO IME (3-12 karaktera)</div>
       <div style="display:flex; gap:8px;">
-        <input type="text" id="usernameInput" maxlength="12" placeholder="VašeIme" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Korisničko ime">
+        <input type="text" id="usernameInput" maxlength="12" placeholder="VašeIme" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Korisničko ime" inputmode="text" enterkeyhint="done">
         <button id="usernameSaveBtn" disabled style="width:auto; padding:0 16px;">SAČUVAJ</button>
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px; min-height:16px;">
@@ -378,7 +381,7 @@
   <div class="first-run-card">
     <h3 id="firstRunTitle">DOBRODOŠLI</h3>
     <p id="firstRunDesc">Unesite jedinstveni nadimak za rang listu i profil.</p>
-    <input type="text" id="firstRunNickname" maxlength="15" autocomplete="off" spellcheck="false" />
+    <input type="text" id="firstRunNickname" maxlength="15" autocomplete="off" spellcheck="false" inputmode="text" enterkeyhint="done" />
     <div id="firstRunAvailability" class="uavail" style="margin-bottom: 15px; min-height: 16px;"></div>
     <button id="firstRunStartBtn" class="btn-primary">START</button>
   </div>
@@ -412,7 +415,29 @@
 
 <canvas id="confettiCanvas"></canvas>
 
-  <script defer src="gameCore.js?v=2.9.6"></script>
-  <script type="module" src="app.js?v=2.9.6"></script>
+  <script defer src="gameCore.js?v=2.9.7"></script>
+  <script type="module" src="app.js?v=2.9.7"></script>
+  <script>
+    /* ═══ Service Worker Registration ═══ */
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        .then(function(reg) {
+          console.log('[SW] Registered — scope:', reg.scope);
+          reg.addEventListener('updatefound', function() {
+            var installing = reg.installing;
+            if (!installing) return;
+            installing.addEventListener('statechange', function() {
+              if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                console.log('[SW] New version available — refresh to update.');
+                // Opciono: pokaži "Update available" toast
+              }
+            });
+          });
+        })
+        .catch(function(err) {
+          console.warn('[SW] Registration failed:', err.message);
+        });
+    }
+  </script>
 </body>
 </html>

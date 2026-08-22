@@ -52,6 +52,9 @@ export const DOMPool = {
     if (!this.pools[className]) {
       this.pools[className] = [];
     }
-    this.pools[className].push(el);
+    // Ograniči pool na max 20 elemenata po tipu da se izbegne akumulacija
+    if (this.pools[className].length < 20) {
+      this.pools[className].push(el);
+    }
   }
 };
